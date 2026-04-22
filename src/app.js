@@ -206,10 +206,40 @@ tbody.addEventListener('change', recompute);
 // --- Auth équipe ---
 const authTokenInput = document.getElementById('f-auth-token');
 const userEmailInput = document.getElementById('f-user-email');
+const tokenBadge = document.getElementById('token-saved');
+const emailBadge = document.getElementById('email-saved');
+
+function showBadge(el, text = '✓ enregistré') {
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 1500);
+}
+
 authTokenInput.value = getAuthToken();
 userEmailInput.value = getUserEmail();
-authTokenInput.addEventListener('change', () => setAuthToken(authTokenInput.value.trim()));
-userEmailInput.addEventListener('change', () => setUserEmail(userEmailInput.value.trim()));
+if (getAuthToken()) { tokenBadge.textContent = '✓ déjà enregistré'; tokenBadge.classList.add('show'); }
+if (getUserEmail()) { emailBadge.textContent = '✓ déjà enregistré'; emailBadge.classList.add('show'); }
+
+// Sauvegarde à chaque frappe (plus juste au blur)
+authTokenInput.addEventListener('input', () => {
+  setAuthToken(authTokenInput.value.trim());
+  showBadge(tokenBadge);
+});
+userEmailInput.addEventListener('input', () => {
+  setUserEmail(userEmailInput.value.trim());
+  showBadge(emailBadge);
+});
+
+document.getElementById('btn-clear-auth').addEventListener('click', () => {
+  if (!confirm('Effacer le token et l\'email de ce navigateur ?')) return;
+  setAuthToken('');
+  setUserEmail('');
+  authTokenInput.value = '';
+  userEmailInput.value = '';
+  tokenBadge.classList.remove('show');
+  emailBadge.classList.remove('show');
+});
 
 // Stocke le dernier fichier uploadé pour pouvoir l'archiver en même temps
 let lastUploadedFile = null;
