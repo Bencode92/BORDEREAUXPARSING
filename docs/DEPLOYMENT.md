@@ -4,11 +4,13 @@ Guide pas-à-pas pour déployer le stockage D1 + R2 et mettre à jour le Worker 
 
 Prérequis : Node.js + [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installé, connecté au compte Cloudflare (`wrangler login`).
 
-## 1. Créer la base D1 (région EU)
+## 1. Créer la base D1 (jurisdiction EU — garantie RGPD)
 
 ```bash
-wrangler d1 create bordereaux_prod --location eu
+wrangler d1 create bordereaux_prod --jurisdiction eu
 ```
+
+`--jurisdiction eu` est une **contrainte forte** (les données sont restreintes à l'UE pour conformité), supérieure à `--location` (simple optimisation perf).
 
 Cette commande affiche un `database_id`. **Copiez-le** dans `worker/wrangler.toml` à la ligne `database_id = "..."`.
 

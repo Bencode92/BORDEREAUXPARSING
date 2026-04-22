@@ -4,9 +4,9 @@ name = "studyforge-proxy"
 main = "worker.js"
 compatibility_date = "2025-04-01"
 
-# ============ D1 (région EU) ============
+# ============ D1 (jurisdiction EU — conformité RGPD) ============
 # Créer avec :
-#   wrangler d1 create bordereaux_prod --location eu
+#   wrangler d1 create bordereaux_prod --jurisdiction eu
 # Puis coller le database_id retourné ci-dessous
 [[d1_databases]]
 binding       = "DB"
