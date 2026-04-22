@@ -89,3 +89,28 @@ button.secondary:hover { background: #d2d2d7; }
 .badge.total { background: #fff4cc; color: #6b5200; }
 
 .ferie-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; }
+
+.dropzone {
+  border: 2px dashed #c7c7cc;
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-top: 1rem;
+}
+.dropzone:hover, .dropzone.drag {
+  border-color: #0071e3;
+  background: #f0f7ff;
+}
+.dropzone p { margin: 0; color: #555; }
+
+input[data-doute="1"] {
+  border-color: #d70015 !important;
+  background: #ffeaea !important;
+  color: #d70015;
+  font-weight: 600;
+}
+
+details summary { cursor: pointer; }
+details[open] summary { margin-bottom: 0.5rem; }

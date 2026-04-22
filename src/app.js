@@ -1,5 +1,6 @@
 import { dayHours } from './time-split.js';
 import { bordereauToRows, toCsv } from './csv-pld.js';
+import { ocrBordereau } from './ocr.js';
 
 const JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
@@ -191,6 +192,86 @@ document.getElementById('btn-copy').addEventListener('click', async () => {
 lundiInput.addEventListener('change', syncDates);
 tbody.addEventListener('input', recompute);
 tbody.addEventListener('change', recompute);
+
+// --- OCR ---
+const JOUR_INDEX = { lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6 };
+const apiKeyInput = document.getElementById('f-apikey');
+const savedKey = localStorage.getItem('anthropic_api_key') || '';
+if (savedKey) apiKeyInput.value = savedKey;
+apiKeyInput.addEventListener('change', () => {
+  localStorage.setItem('anthropic_api_key', apiKeyInput.value.trim());
+});
+
+function setStatus(msg, isError = false) {
+  const el = document.getElementById('ocr-status');
+  el.textContent = msg;
+  el.style.color = isError ? '#d70015' : '#0071e3';
+}
+
+function applyOcrResult(data) {
+  if (data.nom) document.getElementById('f-nom').value = data.nom;
+  if (data.prenom) document.getElementById('f-prenom').value = data.prenom;
+  if (data.semaineDu) {
+    lundiInput.value = data.semaineDu;
+    syncDates();
+  }
+  for (const j of data.jours || []) {
+    const idx = JOUR_INDEX[(j.jour || '').toLowerCase()];
+    if (idx === undefined) continue;
+    const tr = tbody.querySelectorAll('tr')[idx];
+    if (!tr) continue;
+    const setField = (field, value, douteux) => {
+      const input = tr.querySelector(`[data-field=${field}]`);
+      if (!input) return;
+      if (value !== null && value !== undefined && value !== '') {
+        input.value = value;
+        if (douteux) input.dataset.doute = '1';
+        else delete input.dataset.doute;
+      }
+    };
+    const doutes = new Set(j.doutes || []);
+    if (j.date) setField('date', j.date, doutes.has('date'));
+    setField('matinDebut', j.matinDebut, doutes.has('matinDebut'));
+    setField('matinFin', j.matinFin, doutes.has('matinFin'));
+    setField('amDebut', j.amDebut, doutes.has('amDebut'));
+    setField('amFin', j.amFin, doutes.has('amFin'));
+    if (j.ferie) tr.querySelector('[data-field=ferie]').checked = true;
+  }
+  recompute();
+}
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('f-file');
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+async function handleFile(file) {
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    setStatus('Renseigne ta clé API Anthropic (section dépliable ci-dessus).', true);
+    document.getElementById('apikey-details').open = true;
+    return;
+  }
+  setStatus(`OCR en cours sur ${file.name}...`);
+  try {
+    const data = await ocrBordereau(file, apiKey);
+    applyOcrResult(data);
+    const nbDoutes = (data.jours || []).reduce((n, j) => n + (j.doutes?.length || 0), 0);
+    setStatus(`OCR terminé. ${nbDoutes} valeur(s) incertaine(s) en rouge — à vérifier.`);
+  } catch (err) {
+    console.error(err);
+    setStatus(`Erreur OCR : ${err.message}`, true);
+  }
+}
 
 buildRows();
 

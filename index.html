@@ -13,8 +13,26 @@
   </header>
 
   <main>
+    <section class="card" id="ocr-card">
+      <h2>1. Charger un bordereau (OCR)</h2>
+      <details id="apikey-details">
+        <summary class="small">Clé API Claude (stockée localement, jamais envoyée ailleurs)</summary>
+        <div class="row" style="margin-top:0.5rem">
+          <div style="grid-column: 1 / -1">
+            <label>Clé API Anthropic (sk-ant-...)</label>
+            <input type="password" id="f-apikey" placeholder="sk-ant-...">
+          </div>
+        </div>
+      </details>
+      <div id="dropzone" class="dropzone">
+        <p><strong>Dépose ici</strong> une photo, PDF ou scan de bordereau (ou clique pour choisir)</p>
+        <input type="file" id="f-file" accept="image/*,application/pdf" style="display:none">
+      </div>
+      <p id="ocr-status" class="small"></p>
+    </section>
+
     <section class="card">
-      <h2>Intérimaire &amp; semaine</h2>
+      <h2>2. Intérimaire &amp; semaine</h2>
       <div class="row">
         <div><label>Nom</label><input type="text" id="f-nom" placeholder="COMAS"></div>
         <div><label>Prénom</label><input type="text" id="f-prenom" placeholder="Benoît"></div>
@@ -26,7 +44,7 @@
     </section>
 
     <section class="card">
-      <h2>Heures de la semaine</h2>
+      <h2>3. Heures de la semaine</h2>
       <p class="small">Format <code>HH:MM</code>. Laisser vide si non travaillé. Cochez « férié » si applicable — la majoration sera gérée par PLD.</p>
       <table>
         <thead>
@@ -57,12 +75,12 @@
     </section>
 
     <section class="card">
-      <h2>Alertes</h2>
+      <h2>4. Alertes</h2>
       <ul id="alerts"><li class="small">Aucune</li></ul>
     </section>
 
     <section class="card">
-      <h2>CSV PLD Tempo 7</h2>
+      <h2>5. CSV PLD Tempo 7</h2>
       <div class="actions">
         <button id="btn-generate">Générer le CSV</button>
         <button id="btn-download" class="secondary">Télécharger .csv</button>
