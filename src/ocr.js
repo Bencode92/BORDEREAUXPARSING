@@ -1,8 +1,8 @@
-// OCR via Claude Vision API.
-// La clé API est stockée en localStorage côté navigateur.
-// ⚠️ Pour un usage en prod, prévoir un proxy serveur (ne pas exposer la clé publiquement).
+// OCR via Claude Vision API, à travers le Worker Cloudflare studyforge-proxy.
+// La clé Anthropic est stockée en secret côté Worker (env.ANTHROPIC_API_KEY) :
+// le navigateur ne la voit jamais.
 
-const API_URL = 'https://api.anthropic.com/v1/messages';
+const API_URL = 'https://studyforge-proxy.benoit-comas.workers.dev/';
 const MODEL = 'claude-sonnet-4-6';
 
 const SYSTEM_PROMPT = `Tu es un extracteur de données pour des bordereaux d'heures d'intérimaires (agence Cameleons RH).
@@ -66,8 +66,7 @@ function mediaTypeOf(file) {
   return 'image/jpeg';
 }
 
-export async function ocrBordereau(file, apiKey) {
-  if (!apiKey) throw new Error('Clé API manquante');
+export async function ocrBordereau(file) {
   const b64 = await fileToBase64(file);
   const mediaType = mediaTypeOf(file);
   const isPdf = mediaType === 'application/pdf';
@@ -89,22 +88,16 @@ export async function ocrBordereau(file, apiKey) {
 
   const res = await fetch(API_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`API Claude ${res.status}: ${err}`);
+    throw new Error(`Proxy/Claude ${res.status}: ${err}`);
   }
   const data = await res.json();
   const text = (data.content || []).map(c => c.text || '').join('').trim();
-  // Extraction du JSON (tolère un éventuel fencing)
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error('Réponse Claude non-JSON: ' + text.slice(0, 200));
   return JSON.parse(m[0]);

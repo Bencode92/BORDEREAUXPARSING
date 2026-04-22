@@ -195,12 +195,6 @@ tbody.addEventListener('change', recompute);
 
 // --- OCR ---
 const JOUR_INDEX = { lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6 };
-const apiKeyInput = document.getElementById('f-apikey');
-const savedKey = localStorage.getItem('anthropic_api_key') || '';
-if (savedKey) apiKeyInput.value = savedKey;
-apiKeyInput.addEventListener('change', () => {
-  localStorage.setItem('anthropic_api_key', apiKeyInput.value.trim());
-});
 
 function setStatus(msg, isError = false) {
   const el = document.getElementById('ocr-status');
@@ -255,15 +249,9 @@ fileInput.addEventListener('change', e => {
 });
 
 async function handleFile(file) {
-  const apiKey = apiKeyInput.value.trim();
-  if (!apiKey) {
-    setStatus('Renseigne ta clé API Anthropic (section dépliable ci-dessus).', true);
-    document.getElementById('apikey-details').open = true;
-    return;
-  }
   setStatus(`OCR en cours sur ${file.name}...`);
   try {
-    const data = await ocrBordereau(file, apiKey);
+    const data = await ocrBordereau(file);
     applyOcrResult(data);
     const nbDoutes = (data.jours || []).reduce((n, j) => n + (j.doutes?.length || 0), 0);
     setStatus(`OCR terminé. ${nbDoutes} valeur(s) incertaine(s) en rouge — à vérifier.`);

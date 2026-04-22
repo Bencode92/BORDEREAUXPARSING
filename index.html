@@ -15,15 +15,7 @@
   <main>
     <section class="card" id="ocr-card">
       <h2>1. Charger un bordereau (OCR)</h2>
-      <details id="apikey-details">
-        <summary class="small">Clé API Claude (stockée localement, jamais envoyée ailleurs)</summary>
-        <div class="row" style="margin-top:0.5rem">
-          <div style="grid-column: 1 / -1">
-            <label>Clé API Anthropic (sk-ant-...)</label>
-            <input type="password" id="f-apikey" placeholder="sk-ant-...">
-          </div>
-        </div>
-      </details>
+      <p class="small">OCR via <code>studyforge-proxy.benoit-comas.workers.dev</code> (clé Claude stockée côté serveur).</p>
       <div id="dropzone" class="dropzone">
         <p><strong>Dépose ici</strong> une photo, PDF ou scan de bordereau (ou clique pour choisir)</p>
         <input type="file" id="f-file" accept="image/*,application/pdf" style="display:none">
