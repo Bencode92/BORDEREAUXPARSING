@@ -253,12 +253,39 @@ function setStatus(msg, isError = false) {
   el.style.color = isError ? '#d70015' : '#0071e3';
 }
 
+function clearForm() {
+  document.getElementById('f-nom').value = '';
+  document.getElementById('f-prenom').value = '';
+  document.getElementById('f-matricule').value = '';
+  tbody.querySelectorAll('tr').forEach(tr => {
+    ['matinDebut', 'matinFin', 'amDebut', 'amFin'].forEach(f => {
+      const el = tr.querySelector(`[data-field=${f}]`);
+      if (el) { el.value = ''; delete el.dataset.doute; }
+    });
+    const ferie = tr.querySelector('[data-field=ferie]');
+    if (ferie) ferie.checked = false;
+  });
+  delete document.getElementById('f-nom').dataset.doute;
+  delete document.getElementById('f-prenom').dataset.doute;
+  recompute();
+}
+
 function applyOcrResult(data) {
+  clearForm();
+  const doutesGlobaux = new Set(data.doutesGlobaux || []);
+  const markDoubt = (id, field) => {
+    const el = document.getElementById(id);
+    if (el && doutesGlobaux.has(field)) el.dataset.doute = '1';
+    else if (el) delete el.dataset.doute;
+  };
   if (data.nom) document.getElementById('f-nom').value = data.nom;
   if (data.prenom) document.getElementById('f-prenom').value = data.prenom;
+  markDoubt('f-nom', 'nom');
+  markDoubt('f-prenom', 'prenom');
   if (data.semaineDu) {
     lundiInput.value = data.semaineDu;
     syncDates();
+    markDoubt('f-lundi', 'semaineDu');
   }
   for (const j of data.jours || []) {
     const idx = JOUR_INDEX[(j.jour || '').toLowerCase()];
@@ -305,8 +332,11 @@ async function handleFile(file) {
   try {
     const data = await ocrBordereau(file);
     applyOcrResult(data);
-    const nbDoutes = (data.jours || []).reduce((n, j) => n + (j.doutes?.length || 0), 0);
-    setStatus(`OCR terminé. ${nbDoutes} valeur(s) incertaine(s) en rouge — à vérifier.`);
+    const nbDoutesJours = (data.jours || []).reduce((n, j) => n + (j.doutes?.length || 0), 0);
+    const nbDoutesGlob = (data.doutesGlobaux || []).length;
+    const total = nbDoutesJours + nbDoutesGlob;
+    const joursRemplis = (data.jours || []).filter(j => j.matinDebut || j.matinFin || j.amDebut || j.amFin).length;
+    setStatus(`OCR terminé : ${joursRemplis} jour(s) travaillé(s), ${total} valeur(s) en rouge à vérifier.`);
   } catch (err) {
     console.error(err);
     setStatus(`Erreur OCR : ${err.message}`, true);
