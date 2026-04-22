@@ -50,14 +50,35 @@ Exemple :
 
 ```
 /
-├── index.html          UI principale (formulaire + export)
+├── index.html          UI principale (formulaire + export + historique + RGPD)
 ├── src/
 │   ├── time-split.js   Calcul heures jour/nuit (coupure 21h/6h)
-│   └── csv-pld.js      Génération CSV PLD Tempo 7
-├── styles/
-│   └── app.css
+│   ├── csv-pld.js      Génération CSV PLD Tempo 7
+│   ├── ocr.js          Appel Worker (OCR Claude Vision)
+│   ├── archive.js      Client des routes /bordereaux/* (D1 + R2)
+│   └── app.js          Glue UI
+├── styles/app.css
+├── worker/
+│   ├── worker.js       Worker Cloudflare (proxy + bordereaux + RGPD)
+│   ├── schema.sql      Schéma D1 (bordereaux + audit_log)
+│   └── wrangler.toml   Config Worker (bindings D1/R2, cron, EU)
+├── docs/
+│   ├── DEPLOYMENT.md   Pas-à-pas de déploiement
+│   └── RGPD.md         Doc conformité RGPD (à valider par DPO)
 └── samples/            Bordereaux de test
 ```
+
+## Infrastructure
+
+- **Frontend** : HTML/JS statique (peut tourner en local ou Cloudflare Pages)
+- **Backend** : Worker Cloudflare `studyforge-proxy` (OCR proxy + routes bordereaux)
+- **Stockage structuré** : Cloudflare D1 (SQLite serverless, région UE)
+- **Stockage fichiers** : Cloudflare R2 (objets, jurisdiction UE)
+- **OCR** : Claude Vision (Anthropic, DPA + SCCs)
+- **Auth équipe** : token partagé `BORDEREAUX_AUTH_TOKEN`
+- **RGPD** : routes `/rgpd/export` et `/rgpd/forget`, cron purge > 5 ans
+
+Voir `docs/DEPLOYMENT.md` pour le déploiement et `docs/RGPD.md` pour la conformité.
 
 ## Usage (Phase 1)
 

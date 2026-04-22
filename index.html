@@ -13,6 +13,21 @@
   </header>
 
   <main>
+    <section class="card" id="auth-card">
+      <h2>0. Authentification équipe</h2>
+      <p class="small">Token partagé équipe Cameleons (stocké dans votre navigateur uniquement).</p>
+      <div class="row">
+        <div>
+          <label>Votre email</label>
+          <input type="email" id="f-user-email" placeholder="prenom.nom@cameleons.fr">
+        </div>
+        <div>
+          <label>Token équipe</label>
+          <input type="password" id="f-auth-token" placeholder="••••••••">
+        </div>
+      </div>
+    </section>
+
     <section class="card" id="ocr-card">
       <h2>1. Charger un bordereau (OCR)</h2>
       <p class="small">OCR via <code>studyforge-proxy.benoit-comas.workers.dev</code> (clé Claude stockée côté serveur).</p>
@@ -77,8 +92,47 @@
         <button id="btn-generate">Générer le CSV</button>
         <button id="btn-download" class="secondary">Télécharger .csv</button>
         <button id="btn-copy" class="secondary">Copier</button>
+        <button id="btn-archive">Archiver (D1 + R2)</button>
       </div>
       <pre class="csv-output" id="csv-output">(Le CSV apparaîtra ici)</pre>
+      <p id="archive-status" class="small"></p>
+    </section>
+
+    <section class="card">
+      <h2>6. Historique</h2>
+      <div class="actions" style="margin-bottom: 0.5rem">
+        <button id="btn-refresh-list" class="secondary">Rafraîchir la liste</button>
+      </div>
+      <table id="history-table">
+        <thead>
+          <tr>
+            <th>Date saisie</th>
+            <th>Nom</th>
+            <th>Prénom</th>
+            <th>Client</th>
+            <th>Semaine</th>
+            <th class="num">HT</th>
+            <th class="num">HN</th>
+            <th>Source</th>
+            <th>Validé par</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"><tr><td colspan="9" class="small">(cliquez sur « Rafraîchir »)</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>7. Droits RGPD</h2>
+      <p class="small">Droit d'accès (art. 15) et droit à l'oubli (art. 17). La suppression conserve les enregistrements de moins de 5 ans au titre de l'obligation légale de conservation (Code du travail L.3243-4).</p>
+      <div class="row">
+        <div><label>Nom</label><input type="text" id="rgpd-nom"></div>
+        <div><label>Prénom</label><input type="text" id="rgpd-prenom"></div>
+      </div>
+      <div class="actions">
+        <button id="btn-rgpd-export" class="secondary">Exporter les données</button>
+        <button id="btn-rgpd-forget" class="secondary">Supprimer (&gt; 5 ans)</button>
+      </div>
+      <p id="rgpd-status" class="small"></p>
     </section>
   </main>
 

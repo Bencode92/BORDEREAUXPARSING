@@ -1,6 +1,10 @@
 import { dayHours } from './time-split.js';
 import { bordereauToRows, toCsv } from './csv-pld.js';
 import { ocrBordereau } from './ocr.js';
+import {
+  getAuthToken, setAuthToken, getUserEmail, setUserEmail,
+  saveBordereau, listBordereaux, rgpdExport, rgpdForget,
+} from './archive.js';
 
 const JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
@@ -54,6 +58,12 @@ function collectBordereau() {
     reference: document.getElementById('f-reference').value.trim(),
     jours: [],
   };
+  const lundi = document.getElementById('f-lundi').value;
+  if (lundi) {
+    bordereau.semaineDu = lundi;
+    const d = new Date(lundi); d.setDate(d.getDate() + 6);
+    bordereau.semaineAu = d.toISOString().slice(0, 10);
+  }
   tbody.querySelectorAll('tr').forEach((tr) => {
     const get = (f) => tr.querySelector(`[data-field=${f}]`).value;
     const ferie = tr.querySelector('[data-field=ferie]').checked;
@@ -193,6 +203,17 @@ lundiInput.addEventListener('change', syncDates);
 tbody.addEventListener('input', recompute);
 tbody.addEventListener('change', recompute);
 
+// --- Auth équipe ---
+const authTokenInput = document.getElementById('f-auth-token');
+const userEmailInput = document.getElementById('f-user-email');
+authTokenInput.value = getAuthToken();
+userEmailInput.value = getUserEmail();
+authTokenInput.addEventListener('change', () => setAuthToken(authTokenInput.value.trim()));
+userEmailInput.addEventListener('change', () => setUserEmail(userEmailInput.value.trim()));
+
+// Stocke le dernier fichier uploadé pour pouvoir l'archiver en même temps
+let lastUploadedFile = null;
+
 // --- OCR ---
 const JOUR_INDEX = { lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6 };
 
@@ -249,6 +270,7 @@ fileInput.addEventListener('change', e => {
 });
 
 async function handleFile(file) {
+  lastUploadedFile = file;
   setStatus(`OCR en cours sur ${file.name}...`);
   try {
     const data = await ocrBordereau(file);
@@ -260,6 +282,104 @@ async function handleFile(file) {
     setStatus(`Erreur OCR : ${err.message}`, true);
   }
 }
+
+// --- Archiver (D1 + R2) ---
+document.getElementById('btn-archive').addEventListener('click', async () => {
+  const r = generate();
+  if (!r) return;
+  const { csv, bordereau } = r;
+  if (!bordereau.semaineDu) {
+    const lundi = document.getElementById('f-lundi').value;
+    if (!lundi) { setArchiveStatus('Lundi de la semaine obligatoire pour archiver.', true); return; }
+    bordereau.semaineDu = lundi;
+    const d = new Date(lundi); d.setDate(d.getDate() + 6);
+    bordereau.semaineAu = d.toISOString().slice(0, 10);
+  }
+  if (!getAuthToken()) { setArchiveStatus('Renseigne ton email + token équipe (section 0).', true); return; }
+
+  setArchiveStatus('Archivage en cours...');
+  try {
+    const res = await saveBordereau({
+      bordereau, dayHoursFn: dayHours, csvPld: csv,
+      source: lastUploadedFile ? 'ocr' : 'manual',
+      pdfFile: lastUploadedFile,
+    });
+    setArchiveStatus(`Archivé (id=${res.id})${res.pdfKey ? ` — PDF: ${res.pdfKey}` : ''}`);
+    refreshHistory();
+  } catch (err) {
+    setArchiveStatus(`Erreur archivage : ${err.message}`, true);
+  }
+});
+
+function setArchiveStatus(msg, isError = false) {
+  const el = document.getElementById('archive-status');
+  el.textContent = msg;
+  el.style.color = isError ? '#d70015' : '#0f6b3c';
+}
+
+// --- Historique ---
+async function refreshHistory() {
+  const body = document.getElementById('history-body');
+  body.innerHTML = '<tr><td colspan="9" class="small">Chargement...</td></tr>';
+  try {
+    const { bordereaux } = await listBordereaux();
+    if (!bordereaux?.length) {
+      body.innerHTML = '<tr><td colspan="9" class="small">Aucun bordereau archivé.</td></tr>';
+      return;
+    }
+    body.innerHTML = bordereaux.map(b => `
+      <tr>
+        <td>${(b.created_at || '').slice(0, 16)}</td>
+        <td>${b.nom || ''}</td>
+        <td>${b.prenom || ''}</td>
+        <td>${b.client || ''}</td>
+        <td>${b.semaine_du || ''}</td>
+        <td class="num">${(b.total_ht ?? 0).toFixed(2)}</td>
+        <td class="num">${(b.total_hn ?? 0).toFixed(2)}</td>
+        <td>${b.source || ''}</td>
+        <td>${b.validated_by || ''}</td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="9" style="color:#d70015">${err.message}</td></tr>`;
+  }
+}
+document.getElementById('btn-refresh-list').addEventListener('click', refreshHistory);
+
+// --- RGPD ---
+document.getElementById('btn-rgpd-export').addEventListener('click', async () => {
+  const nom = document.getElementById('rgpd-nom').value.trim();
+  const prenom = document.getElementById('rgpd-prenom').value.trim();
+  const out = document.getElementById('rgpd-status');
+  if (!nom || !prenom) { out.textContent = 'Nom et prénom obligatoires.'; out.style.color = '#d70015'; return; }
+  try {
+    const data = await rgpdExport(nom, prenom);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `rgpd-export-${nom}-${prenom}.json`;
+    a.click();
+    out.textContent = `Export RGPD généré (${data.bordereaux?.length || 0} enregistrements).`;
+    out.style.color = '#0f6b3c';
+  } catch (err) {
+    out.textContent = `Erreur : ${err.message}`; out.style.color = '#d70015';
+  }
+});
+document.getElementById('btn-rgpd-forget').addEventListener('click', async () => {
+  const nom = document.getElementById('rgpd-nom').value.trim();
+  const prenom = document.getElementById('rgpd-prenom').value.trim();
+  const out = document.getElementById('rgpd-status');
+  if (!nom || !prenom) { out.textContent = 'Nom et prénom obligatoires.'; out.style.color = '#d70015'; return; }
+  if (!confirm(`Supprimer les données de ${prenom} ${nom} (> 5 ans uniquement, les plus récentes sont conservées pour obligation légale) ?`)) return;
+  try {
+    const data = await rgpdForget(nom, prenom);
+    out.textContent = `${data.deleted} supprimés, ${data.retained} conservés (obligation légale < 5 ans).`;
+    out.style.color = '#0f6b3c';
+    refreshHistory();
+  } catch (err) {
+    out.textContent = `Erreur : ${err.message}`; out.style.color = '#d70015';
+  }
+});
 
 buildRows();
 
