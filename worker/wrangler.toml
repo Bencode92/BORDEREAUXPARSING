@@ -11,7 +11,7 @@ compatibility_date = "2025-04-01"
 [[d1_databases]]
 binding       = "DB"
 database_name = "bordereaux_prod"
-database_id   = "REMPLACER_PAR_ID_RETOURNÉ_PAR_WRANGLER"
+database_id   = "c56a1a95-1a33-49f6-9a56-9d30cc1c732f"
 
 # ============ R2 (jurisdiction EU) ============
 # Créer avec :
