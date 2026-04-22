@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bordereaux Cameleons → PLD Tempo 7</title>
+  <link rel="stylesheet" href="styles/app.css">
+</head>
+<body>
+  <header>
+    <h1>Bordereaux Cameleons → PLD Tempo 7</h1>
+    <p>Saisie, calcul auto jour/nuit (06h→21h / 21h→06h), export CSV PLD</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Intérimaire &amp; semaine</h2>
+      <div class="row">
+        <div><label>Nom</label><input type="text" id="f-nom" placeholder="COMAS"></div>
+        <div><label>Prénom</label><input type="text" id="f-prenom" placeholder="Benoît"></div>
+        <div><label>Matricule (optionnel)</label><input type="text" id="f-matricule"></div>
+        <div><label>N° contrat par défaut</label><input type="text" id="f-contrat" placeholder="100285"></div>
+        <div><label>Référence RH (optionnel)</label><input type="text" id="f-reference" placeholder="CMDE 74124"></div>
+        <div><label>Lundi de la semaine</label><input type="date" id="f-lundi"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Heures de la semaine</h2>
+      <p class="small">Format <code>HH:MM</code>. Laisser vide si non travaillé. Cochez « férié » si applicable — la majoration sera gérée par PLD.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Jour</th>
+            <th>Date</th>
+            <th>Matin début</th>
+            <th>Matin fin</th>
+            <th>AM début</th>
+            <th>AM fin</th>
+            <th>Contrat</th>
+            <th>Férié</th>
+            <th class="num">Jour (HT)</th>
+            <th class="num">Nuit (HN)</th>
+            <th class="num">Total</th>
+          </tr>
+        </thead>
+        <tbody id="days-body"></tbody>
+        <tfoot>
+          <tr>
+            <td colspan="8" style="text-align:right;font-weight:500">Totaux semaine</td>
+            <td class="num" id="sum-ht">0.00</td>
+            <td class="num" id="sum-hn">0.00</td>
+            <td class="num" id="sum-total">0.00</td>
+          </tr>
+        </tfoot>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>Alertes</h2>
+      <ul id="alerts"><li class="small">Aucune</li></ul>
+    </section>
+
+    <section class="card">
+      <h2>CSV PLD Tempo 7</h2>
+      <div class="actions">
+        <button id="btn-generate">Générer le CSV</button>
+        <button id="btn-download" class="secondary">Télécharger .csv</button>
+        <button id="btn-copy" class="secondary">Copier</button>
+      </div>
+      <pre class="csv-output" id="csv-output">(Le CSV apparaîtra ici)</pre>
+    </section>
+  </main>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

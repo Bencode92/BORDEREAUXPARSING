@@ -1,0 +1,91 @@
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  margin: 0;
+  background: #f5f5f7;
+  color: #1d1d1f;
+}
+header {
+  background: #1d1d1f;
+  color: white;
+  padding: 1rem 2rem;
+}
+header h1 { margin: 0; font-size: 1.3rem; font-weight: 500; }
+header p { margin: 0.25rem 0 0; opacity: 0.7; font-size: 0.85rem; }
+
+main { max-width: 1200px; margin: 2rem auto; padding: 0 2rem; }
+
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.card h2 { margin-top: 0; font-size: 1.1rem; }
+
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 0.25rem; }
+input[type=text], input[type=date], input[type=time], input[type=number] {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: white;
+}
+input:focus { outline: 2px solid #0071e3; border-color: transparent; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+th, td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #e5e5e7; font-size: 0.9rem; }
+th { background: #f5f5f7; font-weight: 500; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.ferie { background: #fff4e5; }
+.doute { color: #d70015; font-weight: 600; }
+.alert { background: #ffeaea; }
+
+.day-row input[type=time] { padding: 0.35rem 0.5rem; font-size: 0.85rem; }
+.day-label { font-weight: 500; padding: 0.25rem 0; }
+
+button {
+  background: #0071e3;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+button:hover { background: #0077ed; }
+button.secondary { background: #e5e5e7; color: #1d1d1f; }
+button.secondary:hover { background: #d2d2d7; }
+
+.csv-output {
+  font-family: 'SF Mono', Monaco, monospace;
+  background: #1d1d1f;
+  color: #32d74b;
+  padding: 1rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  white-space: pre;
+  overflow-x: auto;
+  margin-top: 0.5rem;
+}
+
+.actions { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
+
+.small { font-size: 0.8rem; color: #666; }
+.badge {
+  display: inline-block;
+  background: #e5e5e7;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+}
+.badge.jour { background: #d1f2e0; color: #0f6b3c; }
+.badge.nuit { background: #dce4ff; color: #1d3b8a; }
+.badge.total { background: #fff4cc; color: #6b5200; }
+
+.ferie-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; }
