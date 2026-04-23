@@ -293,6 +293,50 @@ notionInput.addEventListener('change', async (e) => {
 
 let cachedInterimaires = [];
 
+// Pour le matching : on considère qu'un bordereau est "valide" si nom+prénom
+// correspondent EXACTEMENT à quelqu'un en base. Sinon on force la sélection.
+let currentMatchedIntermId = null;
+
+async function ensureInterimairesLoaded() {
+  if (cachedInterimaires.length > 0) return cachedInterimaires;
+  if (!getAuthToken()) return [];
+  try {
+    const { intermediaires } = await listIntermediaires(2000);
+    cachedInterimaires = intermediaires;
+    return intermediaires;
+  } catch (e) {
+    console.warn('Impossible de charger la base intérimaires', e);
+    return [];
+  }
+}
+
+function findExactMatch(nom, prenom) {
+  const nomN = (nom || '').trim().toLowerCase();
+  const prenomN = (prenom || '').trim().toLowerCase();
+  if (!nomN || !prenomN) return null;
+  return cachedInterimaires.find(i =>
+    (i.nom || '').toLowerCase() === nomN &&
+    (i.prenom || '').toLowerCase() === prenomN
+  ) || null;
+}
+
+function updateMatchIndicator() {
+  const nom = document.getElementById('f-nom').value;
+  const prenom = document.getElementById('f-prenom').value;
+  const match = findExactMatch(nom, prenom);
+  const badge = document.getElementById('match-indicator');
+  if (!badge) return;
+  if (match) {
+    currentMatchedIntermId = match.id;
+    badge.innerHTML = `<span style="color:var(--c-success)">✓ ${match.prenom} ${match.nom} trouvé en base</span>`;
+    document.getElementById('btn-change-person').style.display = 'inline-block';
+  } else {
+    currentMatchedIntermId = null;
+    badge.innerHTML = `<span style="color:var(--c-danger)">⚠ Personne non trouvée en base — choisir obligatoirement</span>`;
+    document.getElementById('btn-change-person').style.display = 'inline-block';
+  }
+}
+
 function formatDate(iso) {
   if (!iso) return '—';
   const [y, m, d] = iso.split('-');
@@ -639,52 +683,128 @@ async function handleFile(file) {
   }
 }
 
-function applyInterimaireMatch(matches, { q, date }) {
+async function applyInterimaireMatch(matches, { q, date }) {
   const statusEl = document.getElementById('ocr-status');
-  if (!matches || matches.length === 0) {
-    statusEl.textContent += ' Aucun intérimaire trouvé en base.';
+  const SCORE_AUTO = 0.80;
+  const SCORE_MIN  = 0.50;
+
+  if (!matches || matches.length === 0 || matches[0].score < SCORE_MIN) {
+    // Pas de match fiable → force la sélection dans la base complète
+    statusEl.textContent += ` Aucun match fiable (meilleur ${matches?.[0] ? Math.round(matches[0].score * 100) + '%' : '–'}). Sélectionne l'intérimaire dans la base :`;
+    statusEl.style.color = 'var(--c-danger)';
+    await ensureInterimairesLoaded();
+    showFullBaseChooser({ q, date });
     return;
   }
+
   const best = matches[0];
-  const SCORE_AUTO = 0.80;   // ≥ 80% similaire : on corrige automatiquement
-  const SCORE_MIN  = 0.50;   // 50-80% : on propose une liste
 
   if (best.score >= SCORE_AUTO) {
-    // Correction auto
-    const nomInput = document.getElementById('f-nom');
-    const prenomInput = document.getElementById('f-prenom');
-    const matriculeInput = document.getElementById('f-matricule');
-    const contratInput = document.getElementById('f-contrat');
-    const wasWrong = nomInput.value !== best.nom || prenomInput.value !== best.prenom;
-    nomInput.value = best.nom;
-    prenomInput.value = best.prenom;
-    if (best.matricule) matriculeInput.value = best.matricule;
-    delete nomInput.dataset.doute;
-    delete prenomInput.dataset.doute;
-
+    applySelectedInterimaire(best, { date });
     const contrats = best.contrats || [];
     if (contrats.length === 1) {
-      const c = contrats[0];
-      contratInput.value = c.avenant > 0 ? `${c.numero_contrat},${c.avenant}` : c.numero_contrat;
-      statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé (match ${Math.round(best.score * 100)}%) — Contrat ${c.numero_contrat}${c.avenant > 0 ? ' av.' + c.avenant : ''} chez ${c.client}.`;
-      statusEl.style.color = '#0f6b3c';
+      statusEl.textContent = `✓ ${best.prenom} ${best.nom} (match ${Math.round(best.score * 100)}%) — Contrat ${contrats[0].numero_contrat}${contrats[0].avenant > 0 ? ' av.' + contrats[0].avenant : ''} chez ${contrats[0].client}.`;
+      statusEl.style.color = 'var(--c-success)';
     } else if (contrats.length > 1) {
       showContratChooser(best, contrats);
       statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé. ${contrats.length} contrats actifs → choisir ci-dessous.`;
+      statusEl.style.color = 'var(--c-success)';
     } else {
       statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé mais aucun contrat actif ${date ? `le ${date}` : ''}.`;
-      statusEl.style.color = '#b85c00';
+      statusEl.style.color = 'var(--c-warn)';
     }
-    if (wasWrong) console.info('Nom corrigé :', q, '→', `${best.prenom} ${best.nom}`);
-  } else if (best.score >= SCORE_MIN) {
-    showMatchChooser(matches.filter(m => m.score >= SCORE_MIN), { q });
   } else {
-    statusEl.textContent += ` Aucun match fiable (meilleur score ${Math.round(best.score * 100)}%). Saisir manuellement.`;
-    statusEl.style.color = '#b85c00';
+    // 50-80% : on propose la liste restreinte
+    showMatchChooser(matches.filter(m => m.score >= SCORE_MIN), { q });
   }
 }
 
-function showMatchChooser(matches, { q }) {
+// Applique un intermédiaire choisi (depuis match auto ou depuis chooser)
+function applySelectedInterimaire(person, { date }) {
+  document.getElementById('f-nom').value = person.nom;
+  document.getElementById('f-prenom').value = person.prenom;
+  if (person.matricule || person.matricule_notion) {
+    document.getElementById('f-matricule').value = person.matricule || person.matricule_notion;
+  }
+  delete document.getElementById('f-nom').dataset.doute;
+  delete document.getElementById('f-prenom').dataset.doute;
+  currentMatchedIntermId = person.id;
+
+  const contrats = person.contrats || [];
+  if (contrats.length === 1) {
+    const c = contrats[0];
+    document.getElementById('f-contrat').value = c.avenant > 0 ? `${c.numero || c.numero_contrat},${c.avenant}` : (c.numero || c.numero_contrat);
+  } else if (contrats.length > 1) {
+    showContratChooser(person, contrats);
+  }
+  updateMatchIndicator();
+}
+
+// Chooser sur la BASE COMPLÈTE (obligatoire si pas de match fiable)
+function showFullBaseChooser({ q, date }) {
+  let box = document.getElementById('match-chooser');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'match-chooser';
+    box.className = 'card';
+    box.style.marginTop = '-1rem';
+    document.getElementById('ocr-card').after(box);
+  }
+  const todayIso = (date || new Date().toISOString().slice(0, 10));
+  box.innerHTML = `
+    <h3 style="margin-top:0">Sélectionne l'intérimaire dans la base</h3>
+    <p class="small">L'OCR a lu « ${q || '(vide)'} » mais ce nom n'existe pas en base. Tape pour filtrer :</p>
+    <input type="text" id="chooser-filter" placeholder="Rechercher par nom, prénom, matricule…" style="margin-bottom:0.75rem">
+    <div id="chooser-results" class="match-list" style="max-height:420px;overflow-y:auto"></div>
+  `;
+  const render = (list) => {
+    const results = box.querySelector('#chooser-results');
+    if (!list.length) {
+      results.innerHTML = '<p class="small">Aucun résultat.</p>'; return;
+    }
+    results.innerHTML = list.slice(0, 50).map((i) => {
+      const activeContract = (i.contrats || []).find(c => !c.fin || c.fin >= todayIso);
+      const label = activeContract
+        ? `${activeContract.client || '—'} (${activeContract.debut} → ${activeContract.fin || 'en cours'})`
+        : `${(i.contrats || []).length} contrat${(i.contrats || []).length > 1 ? 's' : ''} en base`;
+      return `
+        <button class="match-btn" data-id="${i.id}">
+          <span>
+            <strong>${i.prenom} ${i.nom}</strong>
+            ${i.matricule_notion ? `<span class="badge neutral">#${i.matricule_notion}</span>` : ''}
+            <span class="small" style="display:block">${label}</span>
+          </span>
+        </button>
+      `;
+    }).join('');
+    results.querySelectorAll('.match-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.id, 10);
+        const person = cachedInterimaires.find(i => i.id === id);
+        if (!person) return;
+        applySelectedInterimaire(person, { date });
+        box.remove();
+        const statusEl = document.getElementById('ocr-status');
+        statusEl.textContent = `✓ ${person.prenom} ${person.nom} sélectionné manuellement depuis la base.`;
+        statusEl.style.color = 'var(--c-success)';
+      });
+    });
+  };
+  render(cachedInterimaires);
+  box.querySelector('#chooser-filter').addEventListener('input', (e) => {
+    const qn = e.target.value.toLowerCase().trim();
+    if (!qn) { render(cachedInterimaires); return; }
+    const filtered = cachedInterimaires.filter(i =>
+      `${i.prenom} ${i.nom}`.toLowerCase().includes(qn) ||
+      (i.matricule_notion || '').toLowerCase().includes(qn) ||
+      (i.contrats || []).some(c => (c.client || '').toLowerCase().includes(qn))
+    );
+    render(filtered);
+  });
+  box.querySelector('#chooser-filter').focus();
+}
+
+function showMatchChooser(matches, { q, date }) {
   let box = document.getElementById('match-chooser');
   if (!box) {
     box = document.createElement('div');
@@ -695,7 +815,7 @@ function showMatchChooser(matches, { q }) {
   }
   box.innerHTML = `
     <h3 style="margin-top:0">Plusieurs correspondances possibles pour « ${q} »</h3>
-    <p class="small">Clique sur la bonne personne :</p>
+    <p class="small">Clique sur la bonne personne, ou <a href="#" id="show-full">afficher toute la base</a>.</p>
     <div class="match-list">
       ${matches.map((m, i) => `
         <button class="match-btn" data-idx="${i}">
@@ -709,20 +829,15 @@ function showMatchChooser(matches, { q }) {
   box.querySelectorAll('.match-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const idx = parseInt(btn.dataset.idx, 10);
-      const m = matches[idx];
-      document.getElementById('f-nom').value = m.nom;
-      document.getElementById('f-prenom').value = m.prenom;
-      if (m.matricule) document.getElementById('f-matricule').value = m.matricule;
-      delete document.getElementById('f-nom').dataset.doute;
-      delete document.getElementById('f-prenom').dataset.doute;
-      if (m.contrats.length === 1) {
-        const c = m.contrats[0];
-        document.getElementById('f-contrat').value = c.avenant > 0 ? `${c.numero_contrat},${c.avenant}` : c.numero_contrat;
-      } else if (m.contrats.length > 1) {
-        showContratChooser(m, m.contrats);
-      }
+      applySelectedInterimaire(matches[idx], { date });
       box.remove();
     });
+  });
+  box.querySelector('#show-full').addEventListener('click', async (e) => {
+    e.preventDefault();
+    await ensureInterimairesLoaded();
+    box.remove();
+    showFullBaseChooser({ q, date });
   });
 }
 
@@ -759,6 +874,16 @@ function showContratChooser(person, contrats) {
 
 // --- Archiver (D1 + R2) ---
 document.getElementById('btn-archive').addEventListener('click', async () => {
+  if (!getAuthToken()) { setArchiveStatus('Renseigne ton email + token équipe (section 0).', true); return; }
+  // Validation stricte : l'intérimaire DOIT exister en base
+  await ensureInterimairesLoaded();
+  const nom = document.getElementById('f-nom').value;
+  const prenom = document.getElementById('f-prenom').value;
+  const match = findExactMatch(nom, prenom);
+  if (!match) {
+    setArchiveStatus(`⚠ Impossible d'archiver : "${prenom} ${nom}" n'existe pas dans la base Notion. Sélectionne un intérimaire dans la base avec "Changer d'intérimaire".`, true);
+    return;
+  }
   const r = generate();
   if (!r) return;
   const { csv, bordereau } = r;
@@ -769,8 +894,6 @@ document.getElementById('btn-archive').addEventListener('click', async () => {
     const d = new Date(lundi); d.setDate(d.getDate() + 6);
     bordereau.semaineAu = d.toISOString().slice(0, 10);
   }
-  if (!getAuthToken()) { setArchiveStatus('Renseigne ton email + token équipe (section 0).', true); return; }
-
   setArchiveStatus('Archivage en cours...');
   try {
     const res = await saveBordereau({
@@ -784,6 +907,22 @@ document.getElementById('btn-archive').addEventListener('click', async () => {
     setArchiveStatus(`Erreur archivage : ${err.message}`, true);
   }
 });
+
+// Indicateur de match + bouton changer
+document.getElementById('f-nom').addEventListener('input', updateMatchIndicator);
+document.getElementById('f-prenom').addEventListener('input', updateMatchIndicator);
+
+document.getElementById('btn-change-person').addEventListener('click', async () => {
+  await ensureInterimairesLoaded();
+  const date = document.getElementById('f-lundi').value || null;
+  const q = `${document.getElementById('f-prenom').value} ${document.getElementById('f-nom').value}`.trim();
+  showFullBaseChooser({ q, date });
+});
+
+// Au démarrage : précharge la base si token déjà présent
+if (getAuthToken()) {
+  ensureInterimairesLoaded().then(() => updateMatchIndicator());
+}
 
 function setArchiveStatus(msg, isError = false) {
   const el = document.getElementById('archive-status');
