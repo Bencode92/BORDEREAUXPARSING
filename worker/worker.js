@@ -214,24 +214,33 @@ async function handleBordereaux(request, env, url) {
     });
   }
 
-  // GET /bordereaux/interimaires/match?q=COMAD DEMAT&date=2026-04-20&limit=5
+  // GET /bordereaux/interimaires/match?q=X&nom=Y&prenom=Z&date=D&limit=5
   if (sub === "interimaires/match" && method === "GET") {
     const q = url.searchParams.get("q") || "";
+    const qNom = url.searchParams.get("nom") || "";
+    const qPrenom = url.searchParams.get("prenom") || "";
     const date = url.searchParams.get("date");
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "5", 10), 20);
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "10", 10), 20);
 
-    // 1. Récupère tous les intermédiaires (on scorera JS-side)
-    //    Pour des volumes plus grands : pré-filtrer avec LIKE sur normalisation.
-    const qNorm = normalizeName(q);
+    // 1. Récupère tous les intermédiaires
     const { results } = await env.DB.prepare(
       "SELECT id, nom, prenom, matricule_notion, full_name_norm FROM intermediaires"
     ).all();
 
-    // 2. Score chacun par similarité avec q
-    const scored = results.map(r => ({
-      ...r,
-      score: similarityScore(qNorm, r.full_name_norm),
-    }));
+    // 2. Scoring multi-critères :
+    //    - score full = similarité sur "prenom nom" concaténé
+    //    - score nom  = similarité sur le nom seul
+    //    - score prenom = similarité sur le prénom seul
+    //    → best = max des 3 (avec pondération : un match sur un seul
+    //      champ vaut moins qu'un match complet)
+    const scored = results.map(r => {
+      const sFull   = similarityScore(q, r.full_name_norm);
+      const sNom    = qNom    ? similarityScore(qNom,    r.nom)    : 0;
+      const sPrenom = qPrenom ? similarityScore(qPrenom, r.prenom) : 0;
+      // Poids : full = 1.0, nom seul = 0.85, prenom seul = 0.85
+      const score = Math.max(sFull, sNom * 0.85, sPrenom * 0.85);
+      return { ...r, score, sFull, sNom, sPrenom };
+    });
     scored.sort((a, b) => b.score - a.score);
     const top = scored.slice(0, limit);
 
@@ -259,6 +268,9 @@ async function handleBordereaux(request, env, url) {
       out.push({
         id: t.id, nom: t.nom, prenom: t.prenom, matricule: t.matricule_notion,
         score: Math.round(t.score * 100) / 100,
+        scoreFull:   Math.round(t.sFull   * 100) / 100,
+        scoreNom:    Math.round(t.sNom    * 100) / 100,
+        scorePrenom: Math.round(t.sPrenom * 100) / 100,
         contrats,
       });
     }

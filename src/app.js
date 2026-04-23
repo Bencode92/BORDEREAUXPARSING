@@ -669,9 +669,11 @@ async function handleFile(file) {
       try {
         const q = `${data.prenom || ''} ${data.nom || ''}`.trim();
         const date = data.semaineDu || document.getElementById('f-lundi').value || null;
-        if (q) {
-          const { matches } = await matchIntermediaire({ q, date, limit: 5 });
-          applyInterimaireMatch(matches, { q, date });
+        if (q || data.nom || data.prenom) {
+          const { matches } = await matchIntermediaire({
+            q, nom: data.nom, prenom: data.prenom, date, limit: 10,
+          });
+          applyInterimaireMatch(matches, { q, date, nomOcr: data.nom, prenomOcr: data.prenom });
         }
       } catch (e) {
         console.warn('Match intérimaire échoué', e);
@@ -683,23 +685,13 @@ async function handleFile(file) {
   }
 }
 
-async function applyInterimaireMatch(matches, { q, date }) {
+async function applyInterimaireMatch(matches, { q, date, nomOcr, prenomOcr }) {
   const statusEl = document.getElementById('ocr-status');
   const SCORE_AUTO = 0.80;
-  const SCORE_MIN  = 0.50;
 
-  if (!matches || matches.length === 0 || matches[0].score < SCORE_MIN) {
-    // Pas de match fiable → force la sélection dans la base complète
-    statusEl.textContent += ` Aucun match fiable (meilleur ${matches?.[0] ? Math.round(matches[0].score * 100) + '%' : '–'}). Sélectionne l'intérimaire dans la base :`;
-    statusEl.style.color = 'var(--c-danger)';
-    await ensureInterimairesLoaded();
-    showFullBaseChooser({ q, date });
-    return;
-  }
+  const best = matches && matches[0];
 
-  const best = matches[0];
-
-  if (best.score >= SCORE_AUTO) {
+  if (best && best.score >= SCORE_AUTO) {
     applySelectedInterimaire(best, { date });
     const contrats = best.contrats || [];
     if (contrats.length === 1) {
@@ -713,10 +705,76 @@ async function applyInterimaireMatch(matches, { q, date }) {
       statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé mais aucun contrat actif ${date ? `le ${date}` : ''}.`;
       statusEl.style.color = 'var(--c-warn)';
     }
-  } else {
-    // 50-80% : on propose la liste restreinte
-    showMatchChooser(matches.filter(m => m.score >= SCORE_MIN), { q });
+    return;
   }
+
+  // Pas de match fiable : propose tous les candidats partiels (prénom OU nom OK)
+  const candidates = (matches || []).filter(m => m.score >= 0.30);
+  if (candidates.length > 0) {
+    showSmartChooser(candidates, { q, date, nomOcr, prenomOcr });
+    statusEl.textContent = `Correspondances partielles trouvées — choisis ci-dessous ou affiche toute la base.`;
+    statusEl.style.color = 'var(--c-warn)';
+    return;
+  }
+
+  // Vraiment rien : on bascule direct sur la base complète
+  statusEl.textContent = `Aucun match. Sélectionne l'intérimaire dans la base :`;
+  statusEl.style.color = 'var(--c-danger)';
+  await ensureInterimairesLoaded();
+  showFullBaseChooser({ q, date });
+}
+
+// Chooser "intelligent" : affiche les candidats partiels en expliquant
+// POURQUOI chacun est proposé (prénom OK / nom OK / partiel)
+function showSmartChooser(candidates, { q, date }) {
+  let box = document.getElementById('match-chooser');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'match-chooser';
+    box.className = 'card';
+    box.style.marginTop = '-1rem';
+    document.getElementById('ocr-card').after(box);
+  }
+  box.innerHTML = `
+    <h3 style="margin-top:0">OCR a lu « ${q || '(vide)'} » — candidats probables</h3>
+    <p class="small">Clique sur la bonne personne, ou <a href="#" id="show-full">afficher toute la base</a>.</p>
+    <div class="match-list">
+      ${candidates.map((m, i) => {
+        const reasons = [];
+        if (m.scorePrenom >= 0.85) reasons.push(`<span class="badge jour">Prénom ${Math.round(m.scorePrenom * 100)}%</span>`);
+        if (m.scoreNom    >= 0.85) reasons.push(`<span class="badge jour">Nom ${Math.round(m.scoreNom * 100)}%</span>`);
+        if (m.scoreFull   >= 0.60 && m.scoreFull < 0.85) reasons.push(`<span class="badge total">Complet ${Math.round(m.scoreFull * 100)}%</span>`);
+        const reasonStr = reasons.length ? reasons.join(' ') : `<span class="badge neutral">~${Math.round(m.score * 100)}%</span>`;
+        const contrats = m.contrats || [];
+        const contratLabel = contrats.length ? `${contrats.length} contrat${contrats.length > 1 ? 's' : ''} actif${contrats.length > 1 ? 's' : ''}` : 'aucun contrat actif';
+        return `
+          <button class="match-btn" data-idx="${i}">
+            <span>
+              <strong>${m.prenom} ${m.nom}</strong>
+              ${m.matricule ? `<span class="badge neutral">#${m.matricule}</span>` : ''}
+              <span class="small" style="display:block;margin-top:0.15rem">${reasonStr} · ${contratLabel}</span>
+            </span>
+          </button>
+        `;
+      }).join('')}
+    </div>
+  `;
+  box.querySelectorAll('.match-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      applySelectedInterimaire(candidates[idx], { date });
+      box.remove();
+      const statusEl = document.getElementById('ocr-status');
+      statusEl.textContent = `✓ ${candidates[idx].prenom} ${candidates[idx].nom} sélectionné.`;
+      statusEl.style.color = 'var(--c-success)';
+    });
+  });
+  box.querySelector('#show-full').addEventListener('click', async (e) => {
+    e.preventDefault();
+    await ensureInterimairesLoaded();
+    box.remove();
+    showFullBaseChooser({ q, date });
+  });
 }
 
 // Applique un intermédiaire choisi (depuis match auto ou depuis chooser)

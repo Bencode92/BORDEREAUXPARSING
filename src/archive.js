@@ -117,9 +117,11 @@ export function snapshotDownloadUrl(id) {
   return `https://studyforge-proxy.benoit-comas.workers.dev/bordereaux/interimaires/snapshot/${id}/download`;
 }
 
-export async function matchIntermediaire({ q, date, limit = 5 }) {
+export async function matchIntermediaire({ q, nom, prenom, date, limit = 10 }) {
   const params = new URLSearchParams();
   if (q) params.set('q', q);
+  if (nom) params.set('nom', nom);
+  if (prenom) params.set('prenom', prenom);
   if (date) params.set('date', date);
   params.set('limit', String(limit));
   return call(`/bordereaux/interimaires/match?${params.toString()}`);
