@@ -56,8 +56,8 @@ Règles détaillées :
 4. Format bordereau français : les heures peuvent être écrites "9H00" ou "13h27" ou "13 h 27" → convertis en HH:MM.
 5. "MATINÉE — ARRIVÉE / PAUSE REPAS" = matinDebut / matinFin.
 6. "APRÈS-MIDI — RETOUR PAUSE / DÉPART" = amDebut / amFin. Peut finir après minuit (shift de nuit).
-7. Si la semaine porte "DU JJ/MM/YYYY AU JJ/MM/YYYY", remplis semaineDu et semaineAu au format YYYY-MM-DD.
-8. Si semaineDu est rempli et que les dates par jour ne sont pas explicitement écrites, calcule les dates (lundi=semaineDu, mardi=+1, etc.).
+7. Si la semaine porte "DU JJ/MM/YYYY AU JJ/MM/YYYY", remplis semaineDu et semaineAu au format YYYY-MM-DD EXACTEMENT tels qu'écrits — même si la date de début n'est pas un lundi (ex : un bordereau peut commencer un mercredi quand le 1er du mois tombe un mercredi). Le client calera au lundi.
+8. NE PAS calculer les dates par jour si elles ne sont pas explicitement écrites sur le bordereau. Laisse "date": null et laisse le client calculer à partir de semaineDu.
 9. Jours fériés : cocher ferie=true UNIQUEMENT si explicitement marqué "férié" sur le bordereau.
 10. N'invente AUCUN client si la raison sociale n'est pas lisible → client=null.
 11. NE RENVOIE RIEN D'AUTRE QUE LE JSON.`;

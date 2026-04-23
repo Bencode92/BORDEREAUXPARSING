@@ -654,21 +654,36 @@ fileInput.addEventListener('change', e => {
   if (e.target.files[0]) handleFile(e.target.files[0]);
 });
 
-function firstMondayOfMonth(moisReference) {
-  // moisReference : "YYYY-MM"
-  if (!moisReference) return null;
-  const [y, m] = moisReference.split('-').map(Number);
-  if (!y || !m) return null;
-  const d = new Date(Date.UTC(y, m - 1, 1));
+// Ramène une date ISO au lundi de sa semaine (dim -6, lun 0, mar -1, mer -2, ...)
+function snapToMonday(iso) {
+  if (!iso) return null;
+  const d = new Date(iso + 'T00:00:00Z');
+  if (isNaN(d)) return null;
   const dow = d.getUTCDay(); // 0=dim, 1=lun...
-  const offset = dow === 0 ? 1 : (dow === 1 ? 0 : 8 - dow);
+  const offset = dow === 0 ? -6 : 1 - dow;
   d.setUTCDate(d.getUTCDate() + offset);
   return d.toISOString().slice(0, 10);
 }
 
-function isDateInMonth(iso, moisReference) {
-  if (!iso || !moisReference) return false;
-  return iso.slice(0, 7) === moisReference;
+// Lundi de la semaine qui contient le 1er du mois de référence
+// (utile quand le 1er tombe en milieu de semaine : ex. avril 2026, 1er = mercredi)
+function mondayOfFirstWeek(moisReference) {
+  if (!moisReference) return null;
+  const [y, m] = moisReference.split('-').map(Number);
+  if (!y || !m) return null;
+  const iso = `${y}-${String(m).padStart(2, '0')}-01`;
+  return snapToMonday(iso);
+}
+
+// true si au moins un jour (lundi..dimanche) tombe dans le mois de référence
+function weekOverlapsMonth(lundiIso, moisReference) {
+  if (!lundiIso || !moisReference) return false;
+  const d = new Date(lundiIso + 'T00:00:00Z');
+  for (let i = 0; i < 7; i++) {
+    if (d.toISOString().slice(0, 7) === moisReference) return true;
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return false;
 }
 
 async function handleFile(file) {
@@ -678,16 +693,25 @@ async function handleFile(file) {
   try {
     const data = await ocrBordereau(file, { moisReference });
 
-    // Fallback : si la date lue est nulle ou hors du mois de référence,
-    // on force le premier lundi du mois sélectionné.
-    if (moisReference) {
-      if (!data.semaineDu || !isDateInMonth(data.semaineDu, moisReference)) {
-        const fallback = firstMondayOfMonth(moisReference);
-        if (fallback) {
-          data.semaineDu = fallback;
-          data.doutesGlobaux = Array.from(new Set([...(data.doutesGlobaux || []), 'semaineDu']));
-        }
-      }
+    // 1. Normalise semaineDu au lundi de sa semaine (OCR peut lire une date
+    //    mid-week, ex. 2026-04-01 qui est un mercredi → snap au lundi 2026-03-30).
+    const originalSemaineDu = data.semaineDu;
+    let snapped = snapToMonday(data.semaineDu);
+
+    // 2. Si la semaine obtenue ne touche pas le mois de référence (ou date absente),
+    //    fallback sur le lundi de la semaine qui contient le 1er du mois.
+    if (moisReference && (!snapped || !weekOverlapsMonth(snapped, moisReference))) {
+      snapped = mondayOfFirstWeek(moisReference);
+    }
+
+    if (snapped && snapped !== originalSemaineDu) {
+      data.semaineDu = snapped;
+      data.doutesGlobaux = Array.from(new Set([...(data.doutesGlobaux || []), 'semaineDu']));
+      // Les dates par jour calculées par l'OCR étaient alignées sur l'ancienne date :
+      // on les efface pour que syncDates les reconstruise proprement.
+      for (const j of (data.jours || [])) j.date = null;
+    } else if (snapped) {
+      data.semaineDu = snapped;
     }
     applyOcrResult(data);
     const nbDoutesJours = (data.jours || []).reduce((n, j) => n + (j.doutes?.length || 0), 0);
