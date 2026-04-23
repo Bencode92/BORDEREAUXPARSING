@@ -367,6 +367,50 @@ details[open] summary { margin-bottom: 0.5rem; color: var(--c-text); }
   flex-wrap: wrap;
   align-items: center;
 }
+.interm-card .name { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.contrat-main { margin-top: 0.65rem; }
+.contrat-main .client { font-size: 0.95rem; color: var(--c-text); margin-bottom: 0.15rem; }
+.contrat-main .client strong { color: var(--c-primary-dark); }
+.contrat-dates {
+  margin-bottom: 0.35rem;
+  display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+}
+.contrat-meta {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  font-size: 0.78rem;
+  color: var(--c-text-muted);
+  flex-wrap: wrap;
+}
+.contrats-autres {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px dashed var(--c-border);
+}
+.contrats-autres summary {
+  font-size: 0.8rem;
+  color: var(--c-primary-dark);
+  font-weight: 500;
+  user-select: none;
+}
+.contrats-autres summary:hover { color: var(--c-primary); }
+.contrats-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.contrats-list li {
+  padding: 0.45rem 0.65rem;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+}
+.contrats-list li strong { color: var(--c-text); }
 
 /* ------- Status dots ------- */
 .dot {

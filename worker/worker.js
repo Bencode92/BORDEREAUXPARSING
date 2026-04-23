@@ -208,14 +208,41 @@ async function handleBordereaux(request, env, url) {
     const { results } = await env.DB.prepare(
       `SELECT i.id, i.nom, i.prenom, i.matricule_notion,
               COUNT(c.id) as nb_contrats,
-              MAX(c.date_fin) as derniere_fin
+              MAX(c.date_fin) as derniere_fin,
+              json_group_array(
+                CASE WHEN c.id IS NOT NULL THEN
+                  json_object(
+                    'numero',  c.numero_contrat,
+                    'avenant', c.avenant,
+                    'client',  c.client,
+                    'debut',   c.date_debut,
+                    'fin',     c.date_fin
+                  )
+                END
+              ) as contrats_json
        FROM intermediaires i
        LEFT JOIN contrats c ON c.intermediaire_id = i.id
        GROUP BY i.id
        ORDER BY i.nom, i.prenom
        LIMIT ?`
     ).bind(limit).all();
-    return json({ intermediaires: results });
+
+    // Parse le JSON côté serveur pour renvoyer un vrai tableau propre
+    const clean = results.map(r => {
+      let contrats = [];
+      try {
+        contrats = JSON.parse(r.contrats_json || "[]").filter(Boolean);
+        contrats.sort((a, b) => (b.fin || b.debut || '').localeCompare(a.fin || a.debut || ''));
+      } catch {}
+      return {
+        id: r.id, nom: r.nom, prenom: r.prenom,
+        matricule_notion: r.matricule_notion,
+        nb_contrats: r.nb_contrats,
+        derniere_fin: r.derniere_fin,
+        contrats,
+      };
+    });
+    return json({ intermediaires: clean });
   }
 
   // DELETE /bordereaux/interimaires/:id

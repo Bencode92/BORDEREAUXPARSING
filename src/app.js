@@ -280,6 +280,40 @@ notionInput.addEventListener('change', async (e) => {
 
 let cachedInterimaires = [];
 
+function formatDate(iso) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function durationDays(debut, fin) {
+  if (!debut) return null;
+  const d1 = new Date(debut);
+  const d2 = fin ? new Date(fin) : new Date();
+  const days = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+  if (days < 0) return null;
+  if (days >= 365) {
+    const years = (days / 365).toFixed(1);
+    return `${years} an${parseFloat(years) > 1 ? 's' : ''}`;
+  }
+  if (days >= 30) {
+    const months = Math.round(days / 30);
+    return `${months} mois`;
+  }
+  return `${days} j`;
+}
+
+function contractStatus(contrat, today) {
+  if (!contrat) return { cls: 'neutral', label: 'aucun contrat' };
+  if (!contrat.fin) return { cls: 'active', label: 'en cours' };
+  if (contrat.fin >= today) {
+    const daysLeft = Math.round((new Date(contrat.fin) - new Date(today)) / (1000 * 60 * 60 * 24));
+    if (daysLeft <= 14) return { cls: 'soon', label: `fin dans ${daysLeft}j` };
+    return { cls: 'active', label: 'actif' };
+  }
+  return { cls: 'expired', label: 'expiré' };
+}
+
 function renderInterimList(list) {
   const grid = document.getElementById('interm-grid');
   if (!list.length) {
@@ -288,23 +322,42 @@ function renderInterimList(list) {
   }
   const today = new Date().toISOString().slice(0, 10);
   grid.innerHTML = list.map(i => {
-    let status = 'neutral';
-    let statusText = '';
-    if (!i.derniere_fin) {
-      status = 'active'; statusText = 'Contrat en cours';
-    } else if (i.derniere_fin >= today) {
-      status = 'active'; statusText = `Actif jusqu'au ${i.derniere_fin}`;
-    } else {
-      status = 'expired'; statusText = `Expiré le ${i.derniere_fin}`;
-    }
+    const contrats = (i.contrats || []).slice();
+    const principal = contrats[0]; // déjà trié par fin desc
+    const status = contractStatus(principal, today);
+    const autres = contrats.slice(1);
     return `
-      <div class="interm-card" data-search="${(i.prenom + ' ' + i.nom).toLowerCase()}">
-        <div class="name">${i.prenom} ${i.nom}</div>
-        <div class="meta">
-          <span><span class="dot ${status}"></span>${statusText}</span>
-          <span class="badge neutral">${i.nb_contrats || 0} contrat${(i.nb_contrats || 0) > 1 ? 's' : ''}</span>
-          ${i.matricule_notion ? `<span class="small">#${i.matricule_notion}</span>` : ''}
+      <div class="interm-card" data-search="${(i.prenom + ' ' + i.nom + ' ' + (principal?.client || '')).toLowerCase()}">
+        <div class="name">${i.prenom} ${i.nom}
+          ${i.matricule_notion ? `<span class="badge neutral">#${i.matricule_notion}</span>` : ''}
         </div>
+        ${principal ? `
+          <div class="contrat-main">
+            <div class="client"><strong>${principal.client || '—'}</strong></div>
+            <div class="contrat-dates small">
+              ${formatDate(principal.debut)} → ${principal.fin ? formatDate(principal.fin) : 'en cours'}
+              ${durationDays(principal.debut, principal.fin) ? `<span class="badge neutral">${durationDays(principal.debut, principal.fin)}</span>` : ''}
+            </div>
+            <div class="contrat-meta">
+              <span><span class="dot ${status.cls}"></span>${status.label}</span>
+              <span class="small">N°${principal.numero}${principal.avenant > 0 ? '-av.' + principal.avenant : ''}</span>
+            </div>
+          </div>
+          ${autres.length ? `
+            <details class="contrats-autres">
+              <summary>+ ${autres.length} autre${autres.length > 1 ? 's' : ''} contrat${autres.length > 1 ? 's' : ''}</summary>
+              <ul class="contrats-list">
+                ${autres.map(c => {
+                  const s = contractStatus(c, today);
+                  return `<li>
+                    <div><strong>${c.client || '—'}</strong> <span class="small">N°${c.numero}${c.avenant > 0 ? '-av.' + c.avenant : ''}</span></div>
+                    <div class="small">${formatDate(c.debut)} → ${c.fin ? formatDate(c.fin) : 'en cours'} · <span class="dot ${s.cls}"></span>${s.label}</div>
+                  </li>`;
+                }).join('')}
+              </ul>
+            </details>
+          ` : ''}
+        ` : `<div class="small" style="margin-top:0.5rem">Aucun contrat enregistré.</div>`}
       </div>
     `;
   }).join('');
@@ -312,8 +365,13 @@ function renderInterimList(list) {
 
 function renderInterimStats(list) {
   const today = new Date().toISOString().slice(0, 10);
-  const actifs = list.filter(i => !i.derniere_fin || i.derniere_fin >= today).length;
-  const expires = list.length - actifs;
+  let actifs = 0, expires = 0;
+  for (const i of list) {
+    for (const c of (i.contrats || [])) {
+      if (!c.fin || c.fin >= today) actifs++;
+      else expires++;
+    }
+  }
   document.getElementById('stat-interm').textContent = list.length;
   document.getElementById('stat-actifs').textContent = actifs;
   document.getElementById('stat-expires').textContent = expires;
