@@ -168,6 +168,14 @@ tr.alert:hover { background: #F7CFBE; }
 
 .doute { color: var(--c-danger); font-weight: 600; }
 
+/* ------- Contrat auto-rempli (depuis base Notion, selon date du jour) ------- */
+input[data-auto-contrat="1"] {
+  background: #F0F8F0;
+  border-color: #4CAF50;
+  color: #1B5E20;
+  font-weight: 600;
+}
+
 /* ------- Day rows (compact time inputs) ------- */
 .day-row input[type=time], .day-row input[type=date] {
   padding: 0.4rem 0.55rem;

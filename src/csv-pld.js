@@ -61,22 +61,33 @@ export function toCsv(rows) {
   return rows.map(toCsvLine).join('\r\n') + '\r\n';
 }
 
+// Parse "46544,1" en { numero: "46544", avenant: 1 } ; "100285" → { numero: "100285", avenant: 0 }
+function parseContratField(raw) {
+  if (!raw) return { numero: '', avenant: 0 };
+  const s = String(raw).trim();
+  const m = s.match(/^(.+?)[,\s]+(\d+)$/);
+  if (m) return { numero: m[1].trim(), avenant: parseInt(m[2], 10) || 0 };
+  return { numero: s, avenant: 0 };
+}
+
 // Helper : construit les lignes à partir d'un bordereau complet.
 // bordereau = { nom, prenom, matricule?, contratDefaut?, reference?, jours: [{date, matin, apresMidi, contrat?, ferie?}] }
 // Chaque jour génère 1 ou 2 lignes (HT et/ou HN).
 export function bordereauToRows(bordereau, dayHoursFn) {
   const rows = [];
+  const defaults = parseContratField(bordereau.contratDefaut);
   for (const jour of bordereau.jours || []) {
     if (!jour.date) continue;
     const h = dayHoursFn(jour);
-    const contrat = jour.contrat || bordereau.contratDefaut;
+    // Priorité : contrat du jour > contrat par défaut du bordereau
+    const parsed = jour.contrat ? parseContratField(jour.contrat) : defaults;
     const base = {
       nom: bordereau.nom,
       prenom: bordereau.prenom,
       matricule: bordereau.matricule,
       date: jour.date,
-      contrat,
-      avenant: jour.avenant ?? 0,
+      contrat: parsed.numero,
+      avenant: parsed.avenant,
       reference: bordereau.reference,
     };
     if (h.jour > 0) {

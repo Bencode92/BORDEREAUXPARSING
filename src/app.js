@@ -49,6 +49,9 @@ function syncDates() {
   tbody.querySelectorAll('tr').forEach((tr, i) => {
     tr.querySelector('[data-field=date]').value = addDate(lundi, i);
   });
+  // Si une personne est déjà sélectionnée, re-applique le contrat adapté à
+  // la nouvelle date de chaque jour (cas où on change le lundi après match).
+  applyPerDayContrats();
   recompute();
 }
 
@@ -297,6 +300,46 @@ let cachedInterimaires = [];
 // Pour le matching : on considère qu'un bordereau est "valide" si nom+prénom
 // correspondent EXACTEMENT à quelqu'un en base. Sinon on force la sélection.
 let currentMatchedIntermId = null;
+// Contrats de la personne actuellement sélectionnée — utilisés pour pré-remplir
+// la colonne « Contrat » de chaque ligne jour selon la date du jour.
+let currentPersonContrats = [];
+
+function findContratForDate(contrats, iso) {
+  if (!contrats || !iso) return null;
+  for (const c of contrats) {
+    const debut = c.date_debut || c.debut;
+    const fin   = c.date_fin   || c.fin;
+    if ((!debut || debut <= iso) && (!fin || fin >= iso)) return c;
+  }
+  return null;
+}
+
+function formatContratValue(c) {
+  if (!c) return '';
+  const num = c.numero || c.numero_contrat;
+  return c.avenant > 0 ? `${num},${c.avenant}` : String(num);
+}
+
+function applyPerDayContrats() {
+  if (!currentPersonContrats || currentPersonContrats.length === 0) return;
+  tbody.querySelectorAll('tr').forEach((tr) => {
+    const date = tr.querySelector('[data-field=date]').value;
+    const contratInput = tr.querySelector('[data-field=contrat]');
+    if (!date || !contratInput) return;
+    const c = findContratForDate(currentPersonContrats, date);
+    if (c) {
+      contratInput.value = formatContratValue(c);
+      contratInput.title = `${c.client || ''} — ${c.date_debut || c.debut || '?'} → ${c.date_fin || c.fin || 'en cours'}`;
+      contratInput.dataset.autoContrat = '1';
+    } else if (contratInput.dataset.autoContrat) {
+      // Une date précédente avait auto-rempli, mais plus de contrat actif :
+      // on vide pour qu'on reprenne le contratDefaut.
+      contratInput.value = '';
+      delete contratInput.dataset.autoContrat;
+      contratInput.title = '';
+    }
+  });
+}
 
 async function ensureInterimairesLoaded() {
   if (cachedInterimaires.length > 0) return cachedInterimaires;
@@ -590,11 +633,19 @@ function clearForm() {
       const el = tr.querySelector(`[data-field=${f}]`);
       if (el) { el.value = ''; delete el.dataset.doute; }
     });
+    const contrat = tr.querySelector('[data-field=contrat]');
+    if (contrat && contrat.dataset.autoContrat) {
+      contrat.value = '';
+      contrat.title = '';
+      delete contrat.dataset.autoContrat;
+    }
     const ferie = tr.querySelector('[data-field=ferie]');
     if (ferie) ferie.checked = false;
   });
   delete document.getElementById('f-nom').dataset.doute;
   delete document.getElementById('f-prenom').dataset.doute;
+  delete document.getElementById('f-client').dataset.doute;
+  currentPersonContrats = [];
   recompute();
 }
 
@@ -861,6 +912,7 @@ function applySelectedInterimaire(person, { date }) {
   delete document.getElementById('f-nom').dataset.doute;
   delete document.getElementById('f-prenom').dataset.doute;
   currentMatchedIntermId = person.id;
+  currentPersonContrats = person.contrats || [];
 
   const contrats = person.contrats || [];
   const todayIso = date || new Date().toISOString().slice(0, 10);
@@ -897,6 +949,10 @@ function applySelectedInterimaire(person, { date }) {
       document.getElementById('f-client').dataset.doute = '1';
     }
   }
+  // Auto-remplit la colonne Contrat de CHAQUE jour selon sa date (gère le
+  // cas où la semaine chevauche deux contrats — jours lundi sur contrat A,
+  // jeudi sur contrat B).
+  applyPerDayContrats();
   updateMatchIndicator();
 }
 

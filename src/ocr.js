@@ -18,11 +18,19 @@ Les prénoms français courants : Benoît, Pierre, Marie, Jean, etc. Tu peux t'e
 
 RÈGLE ABSOLUE N°3 : LECTURE RIGOUREUSE DES CHIFFRES D'HEURE.
 Le PREMIER CHIFFRE d'une heure est critique : "02:32" et "22:32" désignent des horaires très différents.
-- Un "0" manuscrit est rond et fermé, plus petit que "2".
-- Un "2" manuscrit a une boucle/angle plus marqué en haut et une base droite.
+
+Repères visuels pour les chiffres manuscrits français :
+- "1" manuscrit FR : un simple bâton oblique, souvent écrit comme un petit chevron "^" ou "Λ" — PAS de boucle, PAS d'empattement horizontal en bas. Deux "1" côte à côte ressemblent à "ΛΛ" ou "nn".
+- "2" manuscrit FR : une boucle marquée en haut PUIS un trait horizontal ou bouclé en bas. A toujours une courbure, pas un simple bâton.
+- "0" manuscrit FR : ovale fermé, continu, plus petit et plus rond qu'un "2".
+- "7" manuscrit FR : un trait horizontal en haut suivi d'un trait oblique. Souvent barré au milieu. Se confond PARFOIS avec "1" mais a la barre horizontale distinctive.
+
+ERREURS FRÉQUENTES À ÉVITER :
+- Ne JAMAIS lire "1" comme "2" : un 1 n'a pas de boucle. Si tu vois un chevron simple, c'est un 1.
+- Ne JAMAIS lire "0" comme "2" : un 0 est continu et fermé, un 2 a une ouverture nette.
 - Les shifts de nuit FINISSENT FRÉQUEMMENT à 02:00, 01:30, 02:32 (après minuit) — ce n'est PAS anormal.
-- En cas de doute sur le premier chiffre (0 vs 2, 1 vs 7, 8 vs 0), METS la valeur la plus probable ET ajoute le champ dans "doutes".
-- Vérifie la cohérence avec l'heure de début : si matinFin=12:31 et amDebut=14:26 et amFin semble commencer par "0", c'est probablement un shift qui se termine après minuit.
+- En cas de doute sur un chiffre (0/2, 1/2, 1/7, 8/0), METS la valeur la plus probable ET ajoute le champ dans "doutes".
+- Vérifie la cohérence : si matinFin=12:31 et amDebut=14:26 et amFin semble commencer par "0", c'est probablement un shift qui se termine après minuit.
 
 Renvoie UNIQUEMENT un JSON valide au schéma suivant, sans texte avant/après, sans balises markdown :
 
