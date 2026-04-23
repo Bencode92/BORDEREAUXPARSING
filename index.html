@@ -35,11 +35,12 @@
       <h2>0.5 Base intérimaires (import Notion)</h2>
       <p class="small">Importez votre export CSV Notion (colonnes : Intérimaires, N Ctr, N Interim, Client, Debut Ctr, Fin Ctr). Utilisé pour corriger automatiquement les noms lus par l'OCR et pré-remplir les contrats.</p>
       <div class="actions">
-        <label class="secondary" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:8px;cursor:pointer;background:#e5e5e7">
+        <label class="btn-file">
           Choisir un CSV Notion…
           <input type="file" id="f-notion-csv" accept=".csv,text/csv" style="display:none">
         </label>
         <button id="btn-list-interm" class="secondary">Voir les intérimaires en base</button>
+        <button id="btn-list-imports" class="secondary">Historique des imports</button>
       </div>
       <p id="notion-status" class="small"></p>
       <div id="interm-list" style="display:none;margin-top:1rem">
@@ -52,6 +53,11 @@
           <input type="text" id="interm-filter" placeholder="Filtrer par nom / prénom / client…">
         </div>
         <div id="interm-grid" class="interm-grid"></div>
+      </div>
+      <div id="imports-history" style="display:none;margin-top:1.5rem">
+        <h3 style="margin-top:0">Historique des imports</h3>
+        <p class="small">Chaque CSV Notion importé est archivé avec sa date. Vous pouvez télécharger un import passé pour re-consulter l'état de la base à cette date.</p>
+        <div id="imports-list"></div>
       </div>
     </section>
 

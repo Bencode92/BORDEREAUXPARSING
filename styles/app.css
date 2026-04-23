@@ -412,6 +412,81 @@ details[open] summary { margin-bottom: 0.5rem; color: var(--c-text); }
 }
 .contrats-list li strong { color: var(--c-text); }
 
+/* ------- Import file button (label wrapping hidden input) ------- */
+.btn-file {
+  display: inline-block;
+  padding: 0.65rem 1.3rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: var(--c-surface);
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+  font-size: 0.92rem;
+  font-weight: 600;
+  transition: all 0.15s;
+  letter-spacing: 0.01em;
+}
+.btn-file:hover {
+  background: var(--c-surface-alt);
+  border-color: var(--c-primary-light);
+}
+
+/* ------- Historique des imports (snapshots) ------- */
+.month-group {
+  background: var(--c-surface-alt);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 1.1rem;
+  margin-bottom: 0.65rem;
+}
+.month-group summary {
+  cursor: pointer;
+  padding: 0.15rem 0;
+  color: var(--c-text);
+  text-transform: capitalize;
+}
+.month-group[open] summary { margin-bottom: 0.5rem; }
+
+.snapshots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.snapshot-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--c-primary);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+}
+.snapshot-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+.snapshot-header strong { color: var(--c-text); font-size: 0.92rem; }
+.snapshot-meta {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 0.45rem;
+}
+.snapshot-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.3rem;
+  gap: 0.5rem;
+}
+.snap-download {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.85rem;
+  box-shadow: none;
+}
+.snap-download:hover { box-shadow: 0 2px 6px rgba(232, 130, 92, 0.25); }
+
 /* ------- Status dots ------- */
 .dot {
   display: inline-block;

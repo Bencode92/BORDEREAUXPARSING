@@ -102,11 +102,19 @@ export async function rgpdForget(nom, prenom) {
 }
 
 // --- Intérimaires (base Notion) ---
-export async function importIntermediaires(rows) {
+export async function importIntermediaires({ rows, csvRaw, filename, errors }) {
   return call('/bordereaux/interimaires/import', {
     method: 'POST',
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({ rows, csvRaw, filename, errors }),
   });
+}
+
+export async function listSnapshots() {
+  return call('/bordereaux/interimaires/snapshots');
+}
+
+export function snapshotDownloadUrl(id) {
+  return `https://studyforge-proxy.benoit-comas.workers.dev/bordereaux/interimaires/snapshot/${id}/download`;
 }
 
 export async function matchIntermediaire({ q, date, limit = 5 }) {

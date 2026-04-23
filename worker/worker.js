@@ -101,9 +101,9 @@ async function handleBordereaux(request, env, url) {
   // ============ INTERIMAIRES (base Notion) ============
 
   // POST /bordereaux/interimaires/import
-  // Body : { rows: [{prenom, nom, matricule, numero, avenant, client, debut, fin}, ...] }
+  // Body : { rows, csvRaw (base64), filename, errors }
   if (sub === "interimaires/import" && method === "POST") {
-    const { rows } = await request.json();
+    const { rows, csvRaw, filename, errors } = await request.json();
     if (!Array.isArray(rows)) return json({ error: "rows requis (array)" }, 400);
 
     const stats = { intermediaires: { inserted: 0, updated: 0 }, contrats: { inserted: 0, updated: 0 } };
@@ -146,8 +146,72 @@ async function handleBordereaux(request, env, url) {
         }
       }
     }
-    await audit(env, { action: "import_intermediaires", userEmail: user, ip, details: stats });
-    return json({ ok: true, stats });
+
+    // Archive CSV en R2 + enregistrement snapshot
+    let r2Key = null;
+    if (csvRaw) {
+      const now = new Date();
+      const y = now.getUTCFullYear();
+      const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+      const d = String(now.getUTCDate()).padStart(2, "0");
+      const ts = now.toISOString().replace(/[:.]/g, "-");
+      const safe = (filename || "import.csv").replace(/[^A-Za-z0-9._-]/g, "_");
+      r2Key = `imports/${y}/${m}/${d}/${ts}-${safe}`;
+      const bytes = Uint8Array.from(atob(csvRaw), c => c.charCodeAt(0));
+      await env.BUCKET.put(r2Key, bytes, {
+        httpMetadata: { contentType: "text/csv; charset=utf-8" },
+      });
+    }
+    const snapRes = await env.DB.prepare(`
+      INSERT INTO import_snapshots
+      (filename, r2_key, nb_lignes_csv,
+       nb_inter_inserted, nb_inter_updated,
+       nb_contrats_inserted, nb_contrats_updated,
+       user_email, errors_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      filename || null, r2Key, rows.length,
+      stats.intermediaires.inserted, stats.intermediaires.updated,
+      stats.contrats.inserted, stats.contrats.updated,
+      user, errors && errors.length ? JSON.stringify(errors) : null
+    ).run();
+
+    await audit(env, { action: "import_intermediaires", userEmail: user, ip, details: { ...stats, snapshotId: snapRes.meta.last_row_id } });
+    return json({ ok: true, stats, snapshotId: snapRes.meta.last_row_id });
+  }
+
+  // GET /bordereaux/interimaires/snapshots
+  if (sub === "interimaires/snapshots" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT id, import_date, filename, nb_lignes_csv,
+              nb_inter_inserted, nb_inter_updated,
+              nb_contrats_inserted, nb_contrats_updated,
+              user_email, r2_key IS NOT NULL as has_csv
+       FROM import_snapshots
+       ORDER BY import_date DESC
+       LIMIT 500`
+    ).all();
+    return json({ snapshots: results });
+  }
+
+  // GET /bordereaux/interimaires/snapshot/:id/download
+  if (/^interimaires\/snapshot\/\d+\/download$/.test(sub) && method === "GET") {
+    const id = parseInt(sub.split("/")[2], 10);
+    const row = await env.DB.prepare(
+      "SELECT r2_key, filename FROM import_snapshots WHERE id = ?"
+    ).bind(id).first();
+    if (!row) return json({ error: "Snapshot introuvable" }, 404);
+    if (!row.r2_key) return json({ error: "Pas de CSV archivé pour ce snapshot" }, 404);
+    const obj = await env.BUCKET.get(row.r2_key);
+    if (!obj) return json({ error: "CSV introuvable en R2" }, 404);
+    await audit(env, { action: "snapshot_download", userEmail: user, ip, details: { id } });
+    return new Response(obj.body, {
+      headers: {
+        ...CORS_BASE,
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${row.filename || 'import.csv'}"`,
+      },
+    });
   }
 
   // GET /bordereaux/interimaires/match?q=COMAD DEMAT&date=2026-04-20&limit=5

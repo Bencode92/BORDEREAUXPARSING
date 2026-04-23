@@ -57,6 +57,22 @@ CREATE INDEX IF NOT EXISTS idx_contrats_interm  ON contrats(intermediaire_id);
 CREATE INDEX IF NOT EXISTS idx_contrats_period  ON contrats(date_debut, date_fin);
 CREATE INDEX IF NOT EXISTS idx_contrats_client  ON contrats(client);
 
+-- ============ HISTORIQUE DES IMPORTS CSV ============
+CREATE TABLE IF NOT EXISTS import_snapshots (
+  id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+  import_date              TEXT NOT NULL DEFAULT (datetime('now')),
+  filename                 TEXT,                  -- nom du fichier tel qu'uploadé
+  r2_key                   TEXT,                  -- clé R2 du CSV archivé
+  nb_lignes_csv            INTEGER DEFAULT 0,     -- lignes parsées avec succès
+  nb_inter_inserted        INTEGER DEFAULT 0,
+  nb_inter_updated         INTEGER DEFAULT 0,
+  nb_contrats_inserted     INTEGER DEFAULT 0,
+  nb_contrats_updated      INTEGER DEFAULT 0,
+  user_email               TEXT,
+  errors_json              TEXT                   -- erreurs de parsing si any
+);
+CREATE INDEX IF NOT EXISTS idx_snap_date ON import_snapshots(import_date DESC);
+
 -- ============ AUDIT LOG (RGPD) ============
 CREATE TABLE IF NOT EXISTS audit_log (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,

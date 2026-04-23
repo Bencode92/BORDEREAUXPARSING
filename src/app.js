@@ -5,6 +5,7 @@ import {
   getAuthToken, setAuthToken, getUserEmail, setUserEmail,
   saveBordereau, listBordereaux, rgpdExport, rgpdForget,
   importIntermediaires, matchIntermediaire, listIntermediaires,
+  listSnapshots, snapshotDownloadUrl,
 } from './archive.js';
 import { parseNotionCsv } from './parse-notion-csv.js';
 
@@ -246,34 +247,46 @@ document.getElementById('btn-clear-auth').addEventListener('click', () => {
 // --- Import CSV Notion ---
 const notionInput = document.getElementById('f-notion-csv');
 const notionStatus = document.getElementById('notion-status');
+async function fileToBase64Text(file) {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
 notionInput.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   if (!getAuthToken()) {
     notionStatus.textContent = 'Renseigne ton token équipe avant d\'importer (section 0).';
-    notionStatus.style.color = '#d70015';
+    notionStatus.style.color = '#C55A3A';
     return;
   }
   notionStatus.textContent = `Lecture de ${file.name}...`;
-  notionStatus.style.color = '#0071e3';
+  notionStatus.style.color = 'var(--c-text-muted)';
   try {
     const text = await file.text();
+    const csvRaw = await fileToBase64Text(file);
     const { rows, errors } = parseNotionCsv(text);
     if (errors.length) console.warn('Erreurs parsing CSV :', errors);
     if (!rows.length) {
       notionStatus.textContent = `Aucune ligne exploitable. ${errors.length} erreur(s). Voir console.`;
-      notionStatus.style.color = '#d70015';
+      notionStatus.style.color = '#C55A3A';
       return;
     }
-    notionStatus.textContent = `${rows.length} ligne(s) parsée(s). Import en cours...`;
-    const res = await importIntermediaires(rows);
+    notionStatus.textContent = `${rows.length} ligne(s) parsée(s). Import + archivage en cours...`;
+    const res = await importIntermediaires({ rows, csvRaw, filename: file.name, errors });
     const s = res.stats;
-    notionStatus.textContent = `✓ Import OK : ${s.intermediaires.inserted} nouveau(x) + ${s.intermediaires.updated} mis à jour · ${s.contrats.inserted + s.contrats.updated} contrat(s).${errors.length ? ' ' + errors.length + ' ligne(s) ignorée(s).' : ''}`;
-    notionStatus.style.color = '#0f6b3c';
+    notionStatus.textContent = `✓ Import OK (snapshot #${res.snapshotId}) : ${s.intermediaires.inserted} nouveau(x) + ${s.intermediaires.updated} mis à jour · ${s.contrats.inserted + s.contrats.updated} contrat(s).${errors.length ? ' ' + errors.length + ' ligne(s) ignorée(s).' : ''}`;
+    notionStatus.style.color = 'var(--c-success)';
+    // Rafraîchir automatiquement l'historique s'il est ouvert
+    const histBox = document.getElementById('imports-history');
+    if (histBox && histBox.style.display === 'block') refreshHistoryImports();
   } catch (err) {
     console.error(err);
     notionStatus.textContent = `Erreur : ${err.message}`;
-    notionStatus.style.color = '#d70015';
+    notionStatus.style.color = '#C55A3A';
   }
   e.target.value = '';
 });
@@ -393,6 +406,110 @@ document.getElementById('btn-list-interm').addEventListener('click', async () =>
     notionStatus.textContent = `Erreur : ${err.message}`;
     notionStatus.style.color = '#C55A3A';
   }
+});
+
+// Historique des imports
+const MOIS_LONG = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+
+function formatImportDate(isoDate) {
+  const d = new Date(isoDate.replace(' ', 'T') + 'Z');
+  const jour = String(d.getDate()).padStart(2, '0');
+  const mois = MOIS_LONG[d.getMonth()];
+  const annee = d.getFullYear();
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${jour} ${mois} ${annee} à ${h}h${min}`;
+}
+
+function monthKey(isoDate) {
+  const d = new Date(isoDate.replace(' ', 'T') + 'Z');
+  return `${MOIS_LONG[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+async function refreshHistoryImports() {
+  const list = document.getElementById('imports-list');
+  list.innerHTML = '<p class="small">Chargement...</p>';
+  try {
+    const { snapshots } = await listSnapshots();
+    if (!snapshots.length) {
+      list.innerHTML = '<p class="small">Aucun import encore. Importez un CSV pour commencer l\'historique.</p>';
+      return;
+    }
+    // Groupement par mois
+    const byMonth = {};
+    for (const s of snapshots) {
+      const k = monthKey(s.import_date);
+      if (!byMonth[k]) byMonth[k] = [];
+      byMonth[k].push(s);
+    }
+    const html = Object.entries(byMonth).map(([mois, snaps]) => `
+      <details class="month-group" open>
+        <summary><strong>${mois}</strong> <span class="small">· ${snaps.length} import${snaps.length > 1 ? 's' : ''}</span></summary>
+        <div class="snapshots-list">
+          ${snaps.map(s => `
+            <div class="snapshot-card">
+              <div class="snapshot-header">
+                <strong>${formatImportDate(s.import_date)}</strong>
+                <span class="small">#${s.id}</span>
+              </div>
+              <div class="snapshot-meta small">
+                <span>${s.nb_lignes_csv} ligne${s.nb_lignes_csv > 1 ? 's' : ''} CSV</span>
+                ·
+                <span class="badge jour">+${s.nb_inter_inserted} intérim</span>
+                <span class="badge neutral">${s.nb_inter_updated} maj</span>
+                ·
+                <span class="badge jour">+${s.nb_contrats_inserted} contrat${s.nb_contrats_inserted > 1 ? 's' : ''}</span>
+                <span class="badge neutral">${s.nb_contrats_updated} maj</span>
+              </div>
+              <div class="snapshot-footer">
+                <span class="small">par ${s.user_email || 'inconnu'}</span>
+                ${s.has_csv ? `<button class="snap-download" data-id="${s.id}" data-name="${(s.filename || 'import-' + s.id + '.csv').replace(/"/g, '&quot;')}">Télécharger CSV</button>` : '<span class="small">(pas de CSV archivé)</span>'}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </details>
+    `).join('');
+    list.innerHTML = html;
+    // Active les boutons de téléchargement
+    list.querySelectorAll('.snap-download').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const name = btn.dataset.name;
+        btn.disabled = true;
+        btn.textContent = 'Téléchargement...';
+        try {
+          const res = await fetch(snapshotDownloadUrl(id), {
+            headers: {
+              'X-Auth-Token': getAuthToken(),
+              'X-User-Email': getUserEmail(),
+            },
+          });
+          if (!res.ok) throw new Error(`${res.status}`);
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = name;
+          a.click();
+          URL.revokeObjectURL(url);
+          btn.textContent = 'Télécharger CSV';
+        } catch (err) {
+          btn.textContent = `Erreur ${err.message}`;
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    list.innerHTML = `<p class="small" style="color:#C55A3A">Erreur : ${err.message}</p>`;
+  }
+}
+
+document.getElementById('btn-list-imports').addEventListener('click', () => {
+  const box = document.getElementById('imports-history');
+  const visible = box.style.display === 'block';
+  box.style.display = visible ? 'none' : 'block';
+  if (!visible) refreshHistoryImports();
 });
 
 // Filtrage en direct
