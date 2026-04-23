@@ -128,3 +128,31 @@ details[open] summary { margin-bottom: 0.5rem; }
   transition: opacity 0.2s;
 }
 .saved-badge.show { opacity: 1; }
+
+.match-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.match-btn {
+  background: white;
+  border: 1px solid #d2d2d7;
+  color: #1d1d1f;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+.match-btn:hover {
+  border-color: #0071e3;
+  background: #f0f7ff;
+}
+.match-btn strong { color: #0071e3; }
+.match-btn .badge { background: #fff4cc; color: #6b5200; }

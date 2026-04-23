@@ -31,6 +31,19 @@
       </div>
     </section>
 
+    <section class="card" id="notion-card">
+      <h2>0.5 Base intérimaires (import Notion)</h2>
+      <p class="small">Importez votre export CSV Notion (colonnes : Intérimaires, N Ctr, N Interim, Client, Debut Ctr, Fin Ctr). Utilisé pour corriger automatiquement les noms lus par l'OCR et pré-remplir les contrats.</p>
+      <div class="actions">
+        <label class="secondary" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:8px;cursor:pointer;background:#e5e5e7">
+          Choisir un CSV Notion…
+          <input type="file" id="f-notion-csv" accept=".csv,text/csv" style="display:none">
+        </label>
+        <button id="btn-list-interm" class="secondary">Voir les intérimaires en base</button>
+      </div>
+      <p id="notion-status" class="small"></p>
+    </section>
+
     <section class="card" id="ocr-card">
       <h2>1. Charger un bordereau (OCR)</h2>
       <p class="small">OCR via <code>studyforge-proxy.benoit-comas.workers.dev</code> (clé Claude stockée côté serveur).</p>

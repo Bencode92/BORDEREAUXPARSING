@@ -50,6 +50,43 @@ function getIp(request) {
   return request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || null;
 }
 
+// ====== Fuzzy matching helpers ======
+function normalizeName(s) {
+  return String(s || "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  const n = a.length, m = b.length;
+  if (!n) return m; if (!m) return n;
+  const prev = new Array(m + 1);
+  const cur = new Array(m + 1);
+  for (let j = 0; j <= m; j++) prev[j] = j;
+  for (let i = 1; i <= n; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= m; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= m; j++) prev[j] = cur[j];
+  }
+  return prev[m];
+}
+
+function similarityScore(a, b) {
+  const an = normalizeName(a);
+  const bn = normalizeName(b);
+  if (!an || !bn) return 0;
+  const maxLen = Math.max(an.length, bn.length);
+  const dist = levenshtein(an, bn);
+  return 1 - dist / maxLen; // 1.0 = identique, 0 = totalement différent
+}
+
 // ====== Routes BORDEREAUX ======
 async function handleBordereaux(request, env, url) {
   const auth = requireAuth(request, env);
@@ -59,6 +96,135 @@ async function handleBordereaux(request, env, url) {
 
   const sub = url.pathname.replace(/^\/bordereaux\/?/, "");
   const method = request.method;
+
+  // ============ INTERIMAIRES (base Notion) ============
+
+  // POST /bordereaux/interimaires/import
+  // Body : { rows: [{prenom, nom, matricule, numero, avenant, client, debut, fin}, ...] }
+  if (sub === "interimaires/import" && method === "POST") {
+    const { rows } = await request.json();
+    if (!Array.isArray(rows)) return json({ error: "rows requis (array)" }, 400);
+
+    const stats = { intermediaires: { inserted: 0, updated: 0 }, contrats: { inserted: 0, updated: 0 } };
+    for (const r of rows) {
+      if (!r.nom || !r.prenom) continue;
+      const fullNorm = normalizeName(`${r.prenom} ${r.nom}`);
+      // Upsert intermediaire
+      const existing = await env.DB.prepare(
+        "SELECT id FROM intermediaires WHERE nom = ? AND prenom = ?"
+      ).bind(r.nom, r.prenom).first();
+      let intermId;
+      if (existing) {
+        intermId = existing.id;
+        await env.DB.prepare(
+          "UPDATE intermediaires SET matricule_notion=?, full_name_norm=?, updated_at=datetime('now') WHERE id=?"
+        ).bind(r.matricule || null, fullNorm, intermId).run();
+        stats.intermediaires.updated++;
+      } else {
+        const res = await env.DB.prepare(
+          "INSERT INTO intermediaires (nom, prenom, matricule_notion, full_name_norm) VALUES (?, ?, ?, ?)"
+        ).bind(r.nom, r.prenom, r.matricule || null, fullNorm).run();
+        intermId = res.meta.last_row_id;
+        stats.intermediaires.inserted++;
+      }
+      // Upsert contrat
+      if (r.numero) {
+        const existingC = await env.DB.prepare(
+          "SELECT id FROM contrats WHERE intermediaire_id=? AND numero_contrat=? AND avenant=?"
+        ).bind(intermId, r.numero, r.avenant || 0).first();
+        if (existingC) {
+          await env.DB.prepare(
+            "UPDATE contrats SET client=?, date_debut=?, date_fin=?, updated_at=datetime('now') WHERE id=?"
+          ).bind(r.client || null, r.debut || null, r.fin || null, existingC.id).run();
+          stats.contrats.updated++;
+        } else {
+          await env.DB.prepare(
+            "INSERT INTO contrats (intermediaire_id, numero_contrat, avenant, client, date_debut, date_fin) VALUES (?, ?, ?, ?, ?, ?)"
+          ).bind(intermId, r.numero, r.avenant || 0, r.client || null, r.debut || null, r.fin || null).run();
+          stats.contrats.inserted++;
+        }
+      }
+    }
+    await audit(env, { action: "import_intermediaires", userEmail: user, ip, details: stats });
+    return json({ ok: true, stats });
+  }
+
+  // GET /bordereaux/interimaires/match?q=COMAD DEMAT&date=2026-04-20&limit=5
+  if (sub === "interimaires/match" && method === "GET") {
+    const q = url.searchParams.get("q") || "";
+    const date = url.searchParams.get("date");
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "5", 10), 20);
+
+    // 1. Récupère tous les intermédiaires (on scorera JS-side)
+    //    Pour des volumes plus grands : pré-filtrer avec LIKE sur normalisation.
+    const qNorm = normalizeName(q);
+    const { results } = await env.DB.prepare(
+      "SELECT id, nom, prenom, matricule_notion, full_name_norm FROM intermediaires"
+    ).all();
+
+    // 2. Score chacun par similarité avec q
+    const scored = results.map(r => ({
+      ...r,
+      score: similarityScore(qNorm, r.full_name_norm),
+    }));
+    scored.sort((a, b) => b.score - a.score);
+    const top = scored.slice(0, limit);
+
+    // 3. Pour chacun, récupère les contrats actifs sur la date demandée
+    const out = [];
+    for (const t of top) {
+      let contrats = [];
+      if (date) {
+        const r = await env.DB.prepare(
+          `SELECT numero_contrat, avenant, client, date_debut, date_fin
+           FROM contrats
+           WHERE intermediaire_id = ?
+             AND (date_debut IS NULL OR date_debut <= ?)
+             AND (date_fin IS NULL OR date_fin >= ?)
+           ORDER BY date_debut DESC`
+        ).bind(t.id, date, date).all();
+        contrats = r.results;
+      } else {
+        const r = await env.DB.prepare(
+          `SELECT numero_contrat, avenant, client, date_debut, date_fin
+           FROM contrats WHERE intermediaire_id = ? ORDER BY date_debut DESC`
+        ).bind(t.id).all();
+        contrats = r.results;
+      }
+      out.push({
+        id: t.id, nom: t.nom, prenom: t.prenom, matricule: t.matricule_notion,
+        score: Math.round(t.score * 100) / 100,
+        contrats,
+      });
+    }
+    await audit(env, { action: "match_intermediaire", userEmail: user, ip, details: { q, date, found: out.length } });
+    return json({ query: q, date, matches: out });
+  }
+
+  // GET /bordereaux/interimaires/list?limit=100
+  if (sub === "interimaires/list" && method === "GET") {
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10), 1000);
+    const { results } = await env.DB.prepare(
+      `SELECT i.id, i.nom, i.prenom, i.matricule_notion,
+              COUNT(c.id) as nb_contrats,
+              MAX(c.date_fin) as derniere_fin
+       FROM intermediaires i
+       LEFT JOIN contrats c ON c.intermediaire_id = i.id
+       GROUP BY i.id
+       ORDER BY i.nom, i.prenom
+       LIMIT ?`
+    ).bind(limit).all();
+    return json({ intermediaires: results });
+  }
+
+  // DELETE /bordereaux/interimaires/:id
+  if (sub.startsWith("interimaires/") && method === "DELETE") {
+    const id = parseInt(sub.slice("interimaires/".length), 10);
+    if (!id) return json({ error: "id invalide" }, 400);
+    await env.DB.prepare("DELETE FROM intermediaires WHERE id = ?").bind(id).run();
+    await audit(env, { action: "delete_intermediaire", userEmail: user, ip, details: { id } });
+    return json({ ok: true });
+  }
 
   // POST /bordereaux/save
   if (sub === "save" && method === "POST") {

@@ -4,7 +4,9 @@ import { ocrBordereau } from './ocr.js';
 import {
   getAuthToken, setAuthToken, getUserEmail, setUserEmail,
   saveBordereau, listBordereaux, rgpdExport, rgpdForget,
+  importIntermediaires, matchIntermediaire, listIntermediaires,
 } from './archive.js';
+import { parseNotionCsv } from './parse-notion-csv.js';
 
 const JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
@@ -241,6 +243,54 @@ document.getElementById('btn-clear-auth').addEventListener('click', () => {
   emailBadge.classList.remove('show');
 });
 
+// --- Import CSV Notion ---
+const notionInput = document.getElementById('f-notion-csv');
+const notionStatus = document.getElementById('notion-status');
+notionInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!getAuthToken()) {
+    notionStatus.textContent = 'Renseigne ton token équipe avant d\'importer (section 0).';
+    notionStatus.style.color = '#d70015';
+    return;
+  }
+  notionStatus.textContent = `Lecture de ${file.name}...`;
+  notionStatus.style.color = '#0071e3';
+  try {
+    const text = await file.text();
+    const { rows, errors } = parseNotionCsv(text);
+    if (errors.length) console.warn('Erreurs parsing CSV :', errors);
+    if (!rows.length) {
+      notionStatus.textContent = `Aucune ligne exploitable. ${errors.length} erreur(s). Voir console.`;
+      notionStatus.style.color = '#d70015';
+      return;
+    }
+    notionStatus.textContent = `${rows.length} ligne(s) parsée(s). Import en cours...`;
+    const res = await importIntermediaires(rows);
+    const s = res.stats;
+    notionStatus.textContent = `✓ Import OK : ${s.intermediaires.inserted} nouveau(x) + ${s.intermediaires.updated} mis à jour · ${s.contrats.inserted + s.contrats.updated} contrat(s).${errors.length ? ' ' + errors.length + ' ligne(s) ignorée(s).' : ''}`;
+    notionStatus.style.color = '#0f6b3c';
+  } catch (err) {
+    console.error(err);
+    notionStatus.textContent = `Erreur : ${err.message}`;
+    notionStatus.style.color = '#d70015';
+  }
+  e.target.value = '';
+});
+
+document.getElementById('btn-list-interm').addEventListener('click', async () => {
+  if (!getAuthToken()) { notionStatus.textContent = 'Token requis.'; notionStatus.style.color = '#d70015'; return; }
+  try {
+    const { intermediaires } = await listIntermediaires(500);
+    notionStatus.textContent = `${intermediaires.length} intérimaire(s) en base. Détails en console.`;
+    console.table(intermediaires);
+    notionStatus.style.color = '#0071e3';
+  } catch (err) {
+    notionStatus.textContent = `Erreur : ${err.message}`;
+    notionStatus.style.color = '#d70015';
+  }
+});
+
 // Stocke le dernier fichier uploadé pour pouvoir l'archiver en même temps
 let lastUploadedFile = null;
 
@@ -336,11 +386,143 @@ async function handleFile(file) {
     const nbDoutesGlob = (data.doutesGlobaux || []).length;
     const total = nbDoutesJours + nbDoutesGlob;
     const joursRemplis = (data.jours || []).filter(j => j.matinDebut || j.matinFin || j.amDebut || j.amFin).length;
-    setStatus(`OCR terminé : ${joursRemplis} jour(s) travaillé(s), ${total} valeur(s) en rouge à vérifier.`);
+    setStatus(`OCR terminé : ${joursRemplis} jour(s) travaillé(s), ${total} valeur(s) en rouge à vérifier. Recherche du contrat…`);
+
+    // Auto-correction nom/prénom/contrat depuis la base intérimaires
+    if (getAuthToken()) {
+      try {
+        const q = `${data.prenom || ''} ${data.nom || ''}`.trim();
+        const date = data.semaineDu || document.getElementById('f-lundi').value || null;
+        if (q) {
+          const { matches } = await matchIntermediaire({ q, date, limit: 5 });
+          applyInterimaireMatch(matches, { q, date });
+        }
+      } catch (e) {
+        console.warn('Match intérimaire échoué', e);
+      }
+    }
   } catch (err) {
     console.error(err);
     setStatus(`Erreur OCR : ${err.message}`, true);
   }
+}
+
+function applyInterimaireMatch(matches, { q, date }) {
+  const statusEl = document.getElementById('ocr-status');
+  if (!matches || matches.length === 0) {
+    statusEl.textContent += ' Aucun intérimaire trouvé en base.';
+    return;
+  }
+  const best = matches[0];
+  const SCORE_AUTO = 0.80;   // ≥ 80% similaire : on corrige automatiquement
+  const SCORE_MIN  = 0.50;   // 50-80% : on propose une liste
+
+  if (best.score >= SCORE_AUTO) {
+    // Correction auto
+    const nomInput = document.getElementById('f-nom');
+    const prenomInput = document.getElementById('f-prenom');
+    const matriculeInput = document.getElementById('f-matricule');
+    const contratInput = document.getElementById('f-contrat');
+    const wasWrong = nomInput.value !== best.nom || prenomInput.value !== best.prenom;
+    nomInput.value = best.nom;
+    prenomInput.value = best.prenom;
+    if (best.matricule) matriculeInput.value = best.matricule;
+    delete nomInput.dataset.doute;
+    delete prenomInput.dataset.doute;
+
+    const contrats = best.contrats || [];
+    if (contrats.length === 1) {
+      const c = contrats[0];
+      contratInput.value = c.avenant > 0 ? `${c.numero_contrat},${c.avenant}` : c.numero_contrat;
+      statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé (match ${Math.round(best.score * 100)}%) — Contrat ${c.numero_contrat}${c.avenant > 0 ? ' av.' + c.avenant : ''} chez ${c.client}.`;
+      statusEl.style.color = '#0f6b3c';
+    } else if (contrats.length > 1) {
+      showContratChooser(best, contrats);
+      statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé. ${contrats.length} contrats actifs → choisir ci-dessous.`;
+    } else {
+      statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé mais aucun contrat actif ${date ? `le ${date}` : ''}.`;
+      statusEl.style.color = '#b85c00';
+    }
+    if (wasWrong) console.info('Nom corrigé :', q, '→', `${best.prenom} ${best.nom}`);
+  } else if (best.score >= SCORE_MIN) {
+    showMatchChooser(matches.filter(m => m.score >= SCORE_MIN), { q });
+  } else {
+    statusEl.textContent += ` Aucun match fiable (meilleur score ${Math.round(best.score * 100)}%). Saisir manuellement.`;
+    statusEl.style.color = '#b85c00';
+  }
+}
+
+function showMatchChooser(matches, { q }) {
+  let box = document.getElementById('match-chooser');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'match-chooser';
+    box.className = 'card';
+    box.style.marginTop = '-1rem';
+    document.getElementById('ocr-card').after(box);
+  }
+  box.innerHTML = `
+    <h3 style="margin-top:0">Plusieurs correspondances possibles pour « ${q} »</h3>
+    <p class="small">Clique sur la bonne personne :</p>
+    <div class="match-list">
+      ${matches.map((m, i) => `
+        <button class="match-btn" data-idx="${i}">
+          <strong>${m.prenom} ${m.nom}</strong>
+          <span class="badge">${Math.round(m.score * 100)}%</span>
+          ${m.contrats.length ? `<span class="small">${m.contrats.length} contrat(s) actif(s)</span>` : '<span class="small">aucun contrat actif</span>'}
+        </button>
+      `).join('')}
+    </div>
+  `;
+  box.querySelectorAll('.match-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      const m = matches[idx];
+      document.getElementById('f-nom').value = m.nom;
+      document.getElementById('f-prenom').value = m.prenom;
+      if (m.matricule) document.getElementById('f-matricule').value = m.matricule;
+      delete document.getElementById('f-nom').dataset.doute;
+      delete document.getElementById('f-prenom').dataset.doute;
+      if (m.contrats.length === 1) {
+        const c = m.contrats[0];
+        document.getElementById('f-contrat').value = c.avenant > 0 ? `${c.numero_contrat},${c.avenant}` : c.numero_contrat;
+      } else if (m.contrats.length > 1) {
+        showContratChooser(m, m.contrats);
+      }
+      box.remove();
+    });
+  });
+}
+
+function showContratChooser(person, contrats) {
+  let box = document.getElementById('contrat-chooser');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'contrat-chooser';
+    box.className = 'card';
+    box.style.marginTop = '-1rem';
+    document.getElementById('ocr-card').after(box);
+  }
+  box.innerHTML = `
+    <h3 style="margin-top:0">${person.prenom} ${person.nom} a plusieurs contrats actifs</h3>
+    <p class="small">Sélectionne le contrat correspondant à ce bordereau :</p>
+    <div class="match-list">
+      ${contrats.map((c, i) => `
+        <button class="match-btn" data-idx="${i}">
+          <strong>Contrat ${c.numero_contrat}${c.avenant > 0 ? ',' + c.avenant : ''}</strong>
+          <span class="small">${c.client || '(pas de client)'} — ${c.date_debut || '?'} → ${c.date_fin || 'en cours'}</span>
+        </button>
+      `).join('')}
+    </div>
+  `;
+  box.querySelectorAll('.match-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      const c = contrats[idx];
+      document.getElementById('f-contrat').value = c.avenant > 0 ? `${c.numero_contrat},${c.avenant}` : c.numero_contrat;
+      box.remove();
+    });
+  });
 }
 
 // --- Archiver (D1 + R2) ---

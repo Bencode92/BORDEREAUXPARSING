@@ -100,3 +100,23 @@ export async function rgpdForget(nom, prenom) {
   const q = new URLSearchParams({ nom, prenom });
   return call(`/bordereaux/rgpd/forget?${q.toString()}`, { method: 'DELETE' });
 }
+
+// --- Intérimaires (base Notion) ---
+export async function importIntermediaires(rows) {
+  return call('/bordereaux/interimaires/import', {
+    method: 'POST',
+    body: JSON.stringify({ rows }),
+  });
+}
+
+export async function matchIntermediaire({ q, date, limit = 5 }) {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (date) params.set('date', date);
+  params.set('limit', String(limit));
+  return call(`/bordereaux/interimaires/match?${params.toString()}`);
+}
+
+export async function listIntermediaires(limit = 100) {
+  return call(`/bordereaux/interimaires/list?limit=${limit}`);
+}
