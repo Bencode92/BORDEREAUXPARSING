@@ -64,6 +64,12 @@
     <section class="card" id="ocr-card">
       <h2>1. Charger un bordereau (OCR)</h2>
       <p class="small">OCR via <code>studyforge-proxy.benoit-comas.workers.dev</code> (clé Claude stockée côté serveur).</p>
+      <div class="row" style="margin-bottom:0.75rem">
+        <div style="max-width:220px">
+          <label>Mois de référence <span class="small">(fallback si date illisible)</span></label>
+          <input type="month" id="f-mois-ref">
+        </div>
+      </div>
       <div id="dropzone" class="dropzone">
         <p><strong>Dépose ici</strong> une photo, PDF ou scan de bordereau (ou clique pour choisir)</p>
         <input type="file" id="f-file" accept="image/*,application/pdf" style="display:none">

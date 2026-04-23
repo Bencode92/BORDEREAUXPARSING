@@ -654,11 +654,41 @@ fileInput.addEventListener('change', e => {
   if (e.target.files[0]) handleFile(e.target.files[0]);
 });
 
+function firstMondayOfMonth(moisReference) {
+  // moisReference : "YYYY-MM"
+  if (!moisReference) return null;
+  const [y, m] = moisReference.split('-').map(Number);
+  if (!y || !m) return null;
+  const d = new Date(Date.UTC(y, m - 1, 1));
+  const dow = d.getUTCDay(); // 0=dim, 1=lun...
+  const offset = dow === 0 ? 1 : (dow === 1 ? 0 : 8 - dow);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+function isDateInMonth(iso, moisReference) {
+  if (!iso || !moisReference) return false;
+  return iso.slice(0, 7) === moisReference;
+}
+
 async function handleFile(file) {
   lastUploadedFile = file;
+  const moisReference = document.getElementById('f-mois-ref').value || null;
   setStatus(`OCR en cours sur ${file.name}...`);
   try {
-    const data = await ocrBordereau(file);
+    const data = await ocrBordereau(file, { moisReference });
+
+    // Fallback : si la date lue est nulle ou hors du mois de référence,
+    // on force le premier lundi du mois sélectionné.
+    if (moisReference) {
+      if (!data.semaineDu || !isDateInMonth(data.semaineDu, moisReference)) {
+        const fallback = firstMondayOfMonth(moisReference);
+        if (fallback) {
+          data.semaineDu = fallback;
+          data.doutesGlobaux = Array.from(new Set([...(data.doutesGlobaux || []), 'semaineDu']));
+        }
+      }
+    }
     applyOcrResult(data);
     const nbDoutesJours = (data.jours || []).reduce((n, j) => n + (j.doutes?.length || 0), 0);
     const nbDoutesGlob = (data.doutesGlobaux || []).length;
@@ -1065,6 +1095,14 @@ document.getElementById('btn-rgpd-forget').addEventListener('click', async () =>
 });
 
 buildRows();
+
+// Pré-remplir le mois de référence au mois courant
+(() => {
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const input = document.getElementById('f-mois-ref');
+  if (input && !input.value) input.value = ym;
+})();
 
 // Pré-remplissage démo : semaine du 20/04/2026, Benoit COMAS Hermès
 lundiInput.value = '2026-04-20';
