@@ -227,19 +227,30 @@ async function handleBordereaux(request, env, url) {
       "SELECT id, nom, prenom, matricule_notion, full_name_norm FROM intermediaires"
     ).all();
 
-    // 2. Scoring multi-critères :
-    //    - score full = similarité sur "prenom nom" concaténé
-    //    - score nom  = similarité sur le nom seul
-    //    - score prenom = similarité sur le prénom seul
-    //    → best = max des 3 (avec pondération : un match sur un seul
-    //      champ vaut moins qu'un match complet)
+    // 2. Scoring multi-critères avec cross-match (prénom/nom inversés) :
+    //    - sFull    = "prenom nom" OCR  vs  "prenom nom" DB
+    //    - sFullSwap= "nom prenom" OCR  vs  "prenom nom" DB   (OCR a inversé)
+    //    - sNom     = OCR.nom    vs DB.nom       (direct)
+    //    - sPrenom  = OCR.prenom vs DB.prenom    (direct)
+    //    - sNomX    = OCR.nom    vs DB.prenom    (cross : OCR a mis le prénom dans nom)
+    //    - sPrenomX = OCR.prenom vs DB.nom       (cross : OCR a mis le nom dans prénom)
+    //    → un cross-match exact sur un champ (ex : "Baptiste" (OCR nom) = "BAPTISTE" (DB prenom))
+    //      suffit à identifier la personne.
     const scored = results.map(r => {
-      const sFull   = similarityScore(q, r.full_name_norm);
-      const sNom    = qNom    ? similarityScore(qNom,    r.nom)    : 0;
-      const sPrenom = qPrenom ? similarityScore(qPrenom, r.prenom) : 0;
-      // Poids : full = 1.0, nom seul = 0.85, prenom seul = 0.85
-      const score = Math.max(sFull, sNom * 0.85, sPrenom * 0.85);
-      return { ...r, score, sFull, sNom, sPrenom };
+      const sFull     = similarityScore(q, r.full_name_norm);
+      const sFullSwap = (qNom && qPrenom)
+        ? similarityScore(`${qNom} ${qPrenom}`, r.full_name_norm) : 0;
+      const sNom     = qNom    ? similarityScore(qNom,    r.nom)    : 0;
+      const sPrenom  = qPrenom ? similarityScore(qPrenom, r.prenom) : 0;
+      const sNomX    = qNom    ? similarityScore(qNom,    r.prenom) : 0;
+      const sPrenomX = qPrenom ? similarityScore(qPrenom, r.nom)    : 0;
+      // Poids : full ou fullSwap = 1.0, un seul champ (direct ou cross) = 0.85
+      const score = Math.max(
+        sFull, sFullSwap,
+        sNom * 0.85, sPrenom * 0.85,
+        sNomX * 0.85, sPrenomX * 0.85,
+      );
+      return { ...r, score, sFull, sFullSwap, sNom, sPrenom, sNomX, sPrenomX };
     });
     scored.sort((a, b) => b.score - a.score);
     const top = scored.slice(0, limit);
@@ -268,9 +279,12 @@ async function handleBordereaux(request, env, url) {
       out.push({
         id: t.id, nom: t.nom, prenom: t.prenom, matricule: t.matricule_notion,
         score: Math.round(t.score * 100) / 100,
-        scoreFull:   Math.round(t.sFull   * 100) / 100,
-        scoreNom:    Math.round(t.sNom    * 100) / 100,
-        scorePrenom: Math.round(t.sPrenom * 100) / 100,
+        scoreFull:     Math.round(t.sFull     * 100) / 100,
+        scoreFullSwap: Math.round(t.sFullSwap * 100) / 100,
+        scoreNom:      Math.round(t.sNom      * 100) / 100,
+        scorePrenom:   Math.round(t.sPrenom   * 100) / 100,
+        scoreNomX:     Math.round(t.sNomX     * 100) / 100,
+        scorePrenomX:  Math.round(t.sPrenomX  * 100) / 100,
         contrats,
       });
     }

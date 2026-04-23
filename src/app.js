@@ -58,6 +58,7 @@ function collectBordereau() {
     prenom: document.getElementById('f-prenom').value.trim(),
     matricule: document.getElementById('f-matricule').value.trim(),
     contratDefaut: document.getElementById('f-contrat').value.trim(),
+    client: document.getElementById('f-client').value.trim(),
     reference: document.getElementById('f-reference').value.trim(),
     jours: [],
   };
@@ -583,6 +584,7 @@ function clearForm() {
   document.getElementById('f-nom').value = '';
   document.getElementById('f-prenom').value = '';
   document.getElementById('f-matricule').value = '';
+  document.getElementById('f-client').value = '';
   tbody.querySelectorAll('tr').forEach(tr => {
     ['matinDebut', 'matinFin', 'amDebut', 'amFin'].forEach(f => {
       const el = tr.querySelector(`[data-field=${f}]`);
@@ -708,8 +710,10 @@ async function applyInterimaireMatch(matches, { q, date, nomOcr, prenomOcr }) {
     return;
   }
 
-  // Pas de match fiable : propose tous les candidats partiels (prénom OU nom OK)
-  const candidates = (matches || []).filter(m => m.score >= 0.30);
+  // Pas de match fiable : propose les candidats au signal fort (≥ 50%).
+  // Avec le cross-match ajouté, les vrais candidats ont un score ≥ 0.85 ;
+  // en-dessous de 0.50 c'est du bruit qui déclenche trop de propositions.
+  const candidates = (matches || []).filter(m => m.score >= 0.50);
   if (candidates.length > 0) {
     showSmartChooser(candidates, { q, date, nomOcr, prenomOcr });
     statusEl.textContent = `Correspondances partielles trouvées — choisis ci-dessous ou affiche toute la base.`;
@@ -741,9 +745,11 @@ function showSmartChooser(candidates, { q, date }) {
     <div class="match-list">
       ${candidates.map((m, i) => {
         const reasons = [];
-        if (m.scorePrenom >= 0.85) reasons.push(`<span class="badge jour">Prénom ${Math.round(m.scorePrenom * 100)}%</span>`);
-        if (m.scoreNom    >= 0.85) reasons.push(`<span class="badge jour">Nom ${Math.round(m.scoreNom * 100)}%</span>`);
-        if (m.scoreFull   >= 0.60 && m.scoreFull < 0.85) reasons.push(`<span class="badge total">Complet ${Math.round(m.scoreFull * 100)}%</span>`);
+        if (m.scorePrenom  >= 0.85) reasons.push(`<span class="badge jour">Prénom ${Math.round(m.scorePrenom * 100)}%</span>`);
+        if (m.scoreNom     >= 0.85) reasons.push(`<span class="badge jour">Nom ${Math.round(m.scoreNom * 100)}%</span>`);
+        if (m.scorePrenomX >= 0.85) reasons.push(`<span class="badge total">Prénom↔Nom ${Math.round(m.scorePrenomX * 100)}%</span>`);
+        if (m.scoreNomX    >= 0.85) reasons.push(`<span class="badge total">Nom↔Prénom ${Math.round(m.scoreNomX * 100)}%</span>`);
+        if (m.scoreFull    >= 0.60 && m.scoreFull < 0.85) reasons.push(`<span class="badge total">Complet ${Math.round(m.scoreFull * 100)}%</span>`);
         const reasonStr = reasons.length ? reasons.join(' ') : `<span class="badge neutral">~${Math.round(m.score * 100)}%</span>`;
         const contrats = m.contrats || [];
         const contratLabel = contrats.length ? `${contrats.length} contrat${contrats.length > 1 ? 's' : ''} actif${contrats.length > 1 ? 's' : ''}` : 'aucun contrat actif';
@@ -792,7 +798,12 @@ function applySelectedInterimaire(person, { date }) {
   if (contrats.length === 1) {
     const c = contrats[0];
     document.getElementById('f-contrat').value = c.avenant > 0 ? `${c.numero || c.numero_contrat},${c.avenant}` : (c.numero || c.numero_contrat);
+    if (c.client) document.getElementById('f-client').value = c.client;
   } else if (contrats.length > 1) {
+    // Privilégier le contrat actif à la date demandée
+    const todayIso = date || new Date().toISOString().slice(0, 10);
+    const active = contrats.find(c => (!c.date_fin && !c.fin) || (c.date_fin || c.fin) >= todayIso);
+    if (active && active.client) document.getElementById('f-client').value = active.client;
     showContratChooser(person, contrats);
   }
   updateMatchIndicator();
@@ -925,6 +936,7 @@ function showContratChooser(person, contrats) {
       const idx = parseInt(btn.dataset.idx, 10);
       const c = contrats[idx];
       document.getElementById('f-contrat').value = c.avenant > 0 ? `${c.numero_contrat},${c.avenant}` : c.numero_contrat;
+      if (c.client) document.getElementById('f-client').value = c.client;
       box.remove();
     });
   });
