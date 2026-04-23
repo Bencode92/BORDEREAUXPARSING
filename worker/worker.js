@@ -255,27 +255,20 @@ async function handleBordereaux(request, env, url) {
     scored.sort((a, b) => b.score - a.score);
     const top = scored.slice(0, limit);
 
-    // 3. Pour chacun, récupère les contrats actifs sur la date demandée
+    // 3. Pour chacun, récupère TOUS ses contrats (actifs + expirés), triés :
+    //    en-cours d'abord, puis plus récents. Le client filtre par date
+    //    mais garde le plus récent comme fallback si rien n'est actif.
     const out = [];
     for (const t of top) {
-      let contrats = [];
-      if (date) {
-        const r = await env.DB.prepare(
-          `SELECT numero_contrat, avenant, client, date_debut, date_fin
-           FROM contrats
-           WHERE intermediaire_id = ?
-             AND (date_debut IS NULL OR date_debut <= ?)
-             AND (date_fin IS NULL OR date_fin >= ?)
-           ORDER BY date_debut DESC`
-        ).bind(t.id, date, date).all();
-        contrats = r.results;
-      } else {
-        const r = await env.DB.prepare(
-          `SELECT numero_contrat, avenant, client, date_debut, date_fin
-           FROM contrats WHERE intermediaire_id = ? ORDER BY date_debut DESC`
-        ).bind(t.id).all();
-        contrats = r.results;
-      }
+      const r = await env.DB.prepare(
+        `SELECT numero_contrat, avenant, client, date_debut, date_fin
+         FROM contrats WHERE intermediaire_id = ?
+         ORDER BY
+           CASE WHEN date_fin IS NULL THEN 0 ELSE 1 END,
+           date_fin DESC,
+           date_debut DESC`
+      ).bind(t.id).all();
+      const contrats = r.results;
       out.push({
         id: t.id, nom: t.nom, prenom: t.prenom, matricule: t.matricule_notion,
         score: Math.round(t.score * 100) / 100,

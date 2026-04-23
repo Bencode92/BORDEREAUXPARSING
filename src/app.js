@@ -608,8 +608,10 @@ function applyOcrResult(data) {
   };
   if (data.nom) document.getElementById('f-nom').value = data.nom;
   if (data.prenom) document.getElementById('f-prenom').value = data.prenom;
+  if (data.client) document.getElementById('f-client').value = data.client;
   markDoubt('f-nom', 'nom');
   markDoubt('f-prenom', 'prenom');
+  markDoubt('f-client', 'client');
   if (data.semaineDu) {
     lundiInput.value = data.semaineDu;
     syncDates();
@@ -750,15 +752,27 @@ async function applyInterimaireMatch(matches, { q, date, nomOcr, prenomOcr }) {
   if (best && best.score >= SCORE_AUTO) {
     applySelectedInterimaire(best, { date });
     const contrats = best.contrats || [];
-    if (contrats.length === 1) {
-      statusEl.textContent = `✓ ${best.prenom} ${best.nom} (match ${Math.round(best.score * 100)}%) — Contrat ${contrats[0].numero_contrat}${contrats[0].avenant > 0 ? ' av.' + contrats[0].avenant : ''} chez ${contrats[0].client}.`;
+    const isActiveOn = (c, iso) => {
+      const debut = c.date_debut || c.debut;
+      const fin   = c.date_fin   || c.fin;
+      return (!debut || debut <= iso) && (!fin || fin >= iso);
+    };
+    const iso = date || new Date().toISOString().slice(0, 10);
+    const actifs = contrats.filter(c => isActiveOn(c, iso));
+
+    if (actifs.length === 1) {
+      const c = actifs[0];
+      statusEl.textContent = `✓ ${best.prenom} ${best.nom} (match ${Math.round(best.score * 100)}%) — Contrat ${c.numero_contrat}${c.avenant > 0 ? ' av.' + c.avenant : ''} chez ${c.client}.`;
       statusEl.style.color = 'var(--c-success)';
-    } else if (contrats.length > 1) {
-      showContratChooser(best, contrats);
-      statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé. ${contrats.length} contrats actifs → choisir ci-dessous.`;
+    } else if (actifs.length > 1) {
+      statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé. ${actifs.length} contrats actifs → choisir ci-dessous.`;
       statusEl.style.color = 'var(--c-success)';
+    } else if (contrats.length > 0) {
+      const r = contrats[0];
+      statusEl.textContent = `⚠ ${best.prenom} ${best.nom} trouvé — aucun contrat actif${date ? ` le ${date}` : ''}. Dernier connu : ${r.client || '?'} (${r.date_debut || '?'} → ${r.date_fin || '?'}) — à vérifier.`;
+      statusEl.style.color = 'var(--c-warn)';
     } else {
-      statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé mais aucun contrat actif ${date ? `le ${date}` : ''}.`;
+      statusEl.textContent = `✓ ${best.prenom} ${best.nom} trouvé mais aucun contrat en base.`;
       statusEl.style.color = 'var(--c-warn)';
     }
     return;
@@ -849,16 +863,39 @@ function applySelectedInterimaire(person, { date }) {
   currentMatchedIntermId = person.id;
 
   const contrats = person.contrats || [];
-  if (contrats.length === 1) {
-    const c = contrats[0];
-    document.getElementById('f-contrat').value = c.avenant > 0 ? `${c.numero || c.numero_contrat},${c.avenant}` : (c.numero || c.numero_contrat);
-    if (c.client) document.getElementById('f-client').value = c.client;
-  } else if (contrats.length > 1) {
-    // Privilégier le contrat actif à la date demandée
-    const todayIso = date || new Date().toISOString().slice(0, 10);
-    const active = contrats.find(c => (!c.date_fin && !c.fin) || (c.date_fin || c.fin) >= todayIso);
-    if (active && active.client) document.getElementById('f-client').value = active.client;
-    showContratChooser(person, contrats);
+  const todayIso = date || new Date().toISOString().slice(0, 10);
+  // Un contrat « actif » sur la date demandée
+  const isActiveOn = (c, iso) => {
+    const debut = c.date_debut || c.debut;
+    const fin   = c.date_fin   || c.fin;
+    return (!debut || debut <= iso) && (!fin || fin >= iso);
+  };
+  const actifs = contrats.filter(c => isActiveOn(c, todayIso));
+
+  const fillContrat = (c) => {
+    const num = c.numero || c.numero_contrat;
+    document.getElementById('f-contrat').value = c.avenant > 0 ? `${num},${c.avenant}` : num;
+    if (c.client) {
+      document.getElementById('f-client').value = c.client;
+      delete document.getElementById('f-client').dataset.doute;
+    }
+  };
+
+  if (actifs.length === 1) {
+    fillContrat(actifs[0]);
+  } else if (actifs.length > 1) {
+    // on pré-remplit avec le premier actif pour ne pas laisser vide
+    fillContrat(actifs[0]);
+    showContratChooser(person, actifs);
+  } else if (contrats.length > 0) {
+    // Aucun contrat actif à la date : fallback sur le plus récent (déjà trié
+    // par le worker). On remplit la raison sociale mais on marque en doute,
+    // et on ne pré-remplit PAS f-contrat car le contrat est expiré.
+    const recent = contrats[0];
+    if (recent.client) {
+      document.getElementById('f-client').value = recent.client;
+      document.getElementById('f-client').dataset.doute = '1';
+    }
   }
   updateMatchIndicator();
 }
