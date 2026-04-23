@@ -278,17 +278,74 @@ notionInput.addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
+let cachedInterimaires = [];
+
+function renderInterimList(list) {
+  const grid = document.getElementById('interm-grid');
+  if (!list.length) {
+    grid.innerHTML = '<p class="small">Aucun intérimaire trouvé.</p>';
+    return;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  grid.innerHTML = list.map(i => {
+    let status = 'neutral';
+    let statusText = '';
+    if (!i.derniere_fin) {
+      status = 'active'; statusText = 'Contrat en cours';
+    } else if (i.derniere_fin >= today) {
+      status = 'active'; statusText = `Actif jusqu'au ${i.derniere_fin}`;
+    } else {
+      status = 'expired'; statusText = `Expiré le ${i.derniere_fin}`;
+    }
+    return `
+      <div class="interm-card" data-search="${(i.prenom + ' ' + i.nom).toLowerCase()}">
+        <div class="name">${i.prenom} ${i.nom}</div>
+        <div class="meta">
+          <span><span class="dot ${status}"></span>${statusText}</span>
+          <span class="badge neutral">${i.nb_contrats || 0} contrat${(i.nb_contrats || 0) > 1 ? 's' : ''}</span>
+          ${i.matricule_notion ? `<span class="small">#${i.matricule_notion}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderInterimStats(list) {
+  const today = new Date().toISOString().slice(0, 10);
+  const actifs = list.filter(i => !i.derniere_fin || i.derniere_fin >= today).length;
+  const expires = list.length - actifs;
+  document.getElementById('stat-interm').textContent = list.length;
+  document.getElementById('stat-actifs').textContent = actifs;
+  document.getElementById('stat-expires').textContent = expires;
+}
+
 document.getElementById('btn-list-interm').addEventListener('click', async () => {
   if (!getAuthToken()) { notionStatus.textContent = 'Token requis.'; notionStatus.style.color = '#d70015'; return; }
+  notionStatus.textContent = 'Chargement...';
+  notionStatus.style.color = 'var(--c-text-muted)';
   try {
-    const { intermediaires } = await listIntermediaires(500);
-    notionStatus.textContent = `${intermediaires.length} intérimaire(s) en base. Détails en console.`;
-    console.table(intermediaires);
-    notionStatus.style.color = '#0071e3';
+    const { intermediaires } = await listIntermediaires(1000);
+    cachedInterimaires = intermediaires;
+    document.getElementById('interm-list').style.display = 'block';
+    renderInterimStats(intermediaires);
+    renderInterimList(intermediaires);
+    notionStatus.textContent = `${intermediaires.length} intérimaire(s) affiché(s).`;
+    notionStatus.style.color = 'var(--c-success)';
   } catch (err) {
     notionStatus.textContent = `Erreur : ${err.message}`;
-    notionStatus.style.color = '#d70015';
+    notionStatus.style.color = '#C55A3A';
   }
+});
+
+// Filtrage en direct
+document.getElementById('interm-filter').addEventListener('input', (e) => {
+  const q = e.target.value.toLowerCase().trim();
+  if (!q) { renderInterimList(cachedInterimaires); return; }
+  const filtered = cachedInterimaires.filter(i =>
+    `${i.prenom} ${i.nom}`.toLowerCase().includes(q) ||
+    (i.matricule_notion || '').toLowerCase().includes(q)
+  );
+  renderInterimList(filtered);
 });
 
 // Stocke le dernier fichier uploadé pour pouvoir l'archiver en même temps

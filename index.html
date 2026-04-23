@@ -42,6 +42,17 @@
         <button id="btn-list-interm" class="secondary">Voir les intérimaires en base</button>
       </div>
       <p id="notion-status" class="small"></p>
+      <div id="interm-list" style="display:none;margin-top:1rem">
+        <div class="stats-row">
+          <div class="stat-box"><div class="label">Intérimaires</div><div class="value" id="stat-interm">–</div></div>
+          <div class="stat-box neutral"><div class="label">Contrats actifs</div><div class="value" id="stat-actifs">–</div></div>
+          <div class="stat-box neutral"><div class="label">Contrats expirés</div><div class="value" id="stat-expires">–</div></div>
+        </div>
+        <div class="filter-bar" style="margin-top:1rem">
+          <input type="text" id="interm-filter" placeholder="Filtrer par nom / prénom / client…">
+        </div>
+        <div id="interm-grid" class="interm-grid"></div>
+      </div>
     </section>
 
     <section class="card" id="ocr-card">
