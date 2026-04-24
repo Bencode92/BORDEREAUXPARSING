@@ -197,8 +197,17 @@
         <p class="small" style="margin-top:0.75rem">Codes utilisés dans le CSV d'import Tempo 7. Doivent correspondre à ton onglet <strong>Correspondances → Heures</strong> dans PLD (ex : HJ = heure de jour cochée, HN = heure de nuit cochée). Les modifs sont sauvegardées automatiquement.</p>
         <h3 style="font-size:0.95rem;margin:1rem 0 0.4rem">Heures</h3>
         <div class="row">
-          <div><label>Code heure de jour</label><input type="text" id="p-code-jour" placeholder="HJ"></div>
-          <div><label>Code heure de nuit</label><input type="text" id="p-code-nuit" placeholder="HN"></div>
+          <div><label>Heures travaillées (total)</label><input type="text" id="p-code-total" placeholder="HT"></div>
+          <div><label>Heures normales (0-35h)</label><input type="text" id="p-code-jour" placeholder="HJ"></div>
+          <div><label>Complément heures de nuit</label><input type="text" id="p-code-nuit" placeholder="HN"></div>
+        </div>
+        <div class="row">
+          <div><label>Heures sup T1 (35→43h, 125%)</label><input type="text" id="p-code-t1" placeholder="HS1"></div>
+          <div><label>Heures sup T2 (>43h, 150%)</label><input type="text" id="p-code-t2" placeholder="HS2"></div>
+        </div>
+        <div class="row">
+          <div><label>Heures fériés (auto calendrier FR)</label><input type="text" id="p-code-ferie" placeholder="HF"></div>
+          <div><label>Heures dimanche (200%)</label><input type="text" id="p-code-dimanche" placeholder="HD"></div>
         </div>
         <h3 style="font-size:0.95rem;margin:1rem 0 0.4rem">Absences <span class="small">(pour plus tard)</span></h3>
         <div class="row">

@@ -163,6 +163,14 @@ tfoot td { background: var(--c-surface-alt); font-weight: 600; }
 
 tr.ferie { background: var(--c-warn-bg); }
 tr.ferie:hover { background: #F7E3C0; }
+/* Jour férié national détecté automatiquement (calendrier FR) */
+tr.auto-ferie .day-label::after {
+  content: ' 🇫🇷 férié';
+  font-size: 0.72rem;
+  color: var(--c-warn);
+  font-weight: 600;
+  margin-left: 0.3rem;
+}
 tr.alert { background: var(--c-danger-bg); }
 tr.alert:hover { background: #F7CFBE; }
 

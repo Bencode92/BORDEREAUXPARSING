@@ -1,5 +1,5 @@
 import { dayHours } from './time-split.js';
-import { bordereauToRows, toCsv } from './csv-pld.js';
+import { bordereauToRows, toCsv, isFrenchHoliday } from './csv-pld.js';
 import { ocrBordereau } from './ocr.js';
 import {
   getAuthToken, setAuthToken, getUserEmail, setUserEmail,
@@ -51,7 +51,17 @@ function syncDates() {
   const lundi = lundiInput.value;
   if (!lundi) return;
   tbody.querySelectorAll('tr').forEach((tr, i) => {
-    tr.querySelector('[data-field=date]').value = addDate(lundi, i);
+    const date = addDate(lundi, i);
+    tr.querySelector('[data-field=date]').value = date;
+    // Auto-coche la case « férié » si c'est un jour férié FR (jamais de décoche auto
+    // pour ne pas écraser un choix manuel sur un jour non-férié).
+    if (isFrenchHoliday(date)) {
+      const cb = tr.querySelector('[data-field=ferie]');
+      if (cb && !cb.checked) cb.checked = true;
+      tr.classList.add('auto-ferie');
+    } else {
+      tr.classList.remove('auto-ferie');
+    }
   });
   // Si une personne est déjà sélectionnée, re-applique le contrat adapté à
   // la nouvelle date de chaque jour (cas où on change le lundi après match).
@@ -159,7 +169,12 @@ function recompute() {
 
 // ===== Paramètres export PLD (codes configurables, persistés localStorage) =====
 const PLD_CODES_KEY = 'cameleons_pld_codes';
-const DEFAULT_PLD_CODES = { jour: 'HJ', nuit: 'HN', cp: 'CP', rtt: 'RTT', am: 'AM' };
+const DEFAULT_PLD_CODES = {
+  total: 'HT', jour: 'HJ', nuit: 'HN',
+  t1: 'HS1', t2: 'HS2',
+  ferie: 'HF', dimanche: 'HD',
+  cp: 'CP', rtt: 'RTT', am: 'AM',
+};
 
 export function getPldCodes() {
   try {
@@ -181,7 +196,15 @@ function generate() {
     return null;
   }
   const c = getPldCodes();
-  const rows = bordereauToRows(bordereau, dayHours, { codeJour: c.jour, codeNuit: c.nuit });
+  const rows = bordereauToRows(bordereau, dayHours, {
+    codeTotal: c.total,
+    codeNormales: c.jour,
+    codeNuit: c.nuit,
+    codeSupT1: c.t1,
+    codeSupT2: c.t2,
+    codeFerie: c.ferie,
+    codeDimanche: c.dimanche,
+  });
   if (rows.length === 0) {
     alert('Aucune heure saisie.');
     return null;
@@ -2050,11 +2073,16 @@ buildRows();
 (() => {
   const stored = getPldCodes();
   const fields = [
-    ['p-code-jour', 'jour', DEFAULT_PLD_CODES.jour],
-    ['p-code-nuit', 'nuit', DEFAULT_PLD_CODES.nuit],
-    ['p-code-cp',   'cp',   DEFAULT_PLD_CODES.cp],
-    ['p-code-rtt',  'rtt',  DEFAULT_PLD_CODES.rtt],
-    ['p-code-am',   'am',   DEFAULT_PLD_CODES.am],
+    ['p-code-total',    'total',    DEFAULT_PLD_CODES.total],
+    ['p-code-jour',     'jour',     DEFAULT_PLD_CODES.jour],
+    ['p-code-nuit',     'nuit',     DEFAULT_PLD_CODES.nuit],
+    ['p-code-t1',       't1',       DEFAULT_PLD_CODES.t1],
+    ['p-code-t2',       't2',       DEFAULT_PLD_CODES.t2],
+    ['p-code-ferie',    'ferie',    DEFAULT_PLD_CODES.ferie],
+    ['p-code-dimanche', 'dimanche', DEFAULT_PLD_CODES.dimanche],
+    ['p-code-cp',       'cp',       DEFAULT_PLD_CODES.cp],
+    ['p-code-rtt',      'rtt',      DEFAULT_PLD_CODES.rtt],
+    ['p-code-am',       'am',       DEFAULT_PLD_CODES.am],
   ];
   const statusEl = document.getElementById('pld-settings-status');
   const showSaved = () => {
