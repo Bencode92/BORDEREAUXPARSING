@@ -9,6 +9,7 @@ import {
   sha256File, checkHashes,
   deleteBordereau, fetchPdfBlobUrl,
   getBordereau, updateBordereau,
+  batchFetchBordereaux, batchExport,
 } from './archive.js';
 import { parseNotionCsv } from './parse-notion-csv.js';
 import { extractZip, convertHeicFile, processBatch } from './batch.js';
@@ -1781,7 +1782,8 @@ async function refreshHistory() {
       ? `<span class="badge jour" title="Exporté le ${b.exported_at || '?'}${b.export_batch_id ? ' (batch #' + b.export_batch_id + ')' : ''}">✓ exporté</span>`
       : '<span class="badge neutral">non exporté</span>';
     body.innerHTML = bordereaux.map(b => `
-      <tr data-id="${b.id}">
+      <tr data-id="${b.id}" class="${b.exported ? 'already-exported' : ''}">
+        <td><input type="checkbox" class="hist-check" data-check="${b.id}"></td>
         <td>${(b.created_at || '').slice(0, 16)}</td>
         <td>${b.nom || ''}</td>
         <td>${b.prenom || ''}</td>
@@ -1798,6 +1800,11 @@ async function refreshHistory() {
         </td>
       </tr>
     `).join('');
+    // Wire les checkboxes pour update du compteur
+    body.querySelectorAll('.hist-check').forEach(cb => {
+      cb.addEventListener('change', updateSelectionUi);
+    });
+    updateSelectionUi();
     // Stocke les bordereaux pour retrouver leur pdf_r2_key au clic
     window.__historyBordereaux = bordereaux;
     // Wire les boutons
@@ -1815,6 +1822,100 @@ async function refreshHistory() {
   }
 }
 document.getElementById('btn-refresh-list').addEventListener('click', refreshHistory);
+
+// ===== Sélection multi-lignes + export groupé =====
+function getSelectedHistoryIds() {
+  return Array.from(document.querySelectorAll('.hist-check:checked'))
+    .map(cb => parseInt(cb.dataset.check, 10));
+}
+function updateSelectionUi() {
+  const ids = getSelectedHistoryIds();
+  const btn = document.getElementById('btn-export-selection');
+  const cnt = document.getElementById('selection-count');
+  if (btn) btn.disabled = ids.length === 0;
+  if (cnt) cnt.textContent = ids.length ? `${ids.length} bordereau(x) sélectionné(s)` : '';
+}
+document.getElementById('hist-select-all').addEventListener('change', (e) => {
+  document.querySelectorAll('.hist-check').forEach(cb => { cb.checked = e.target.checked; });
+  updateSelectionUi();
+});
+
+document.getElementById('btn-export-selection').addEventListener('click', async () => {
+  const ids = getSelectedHistoryIds();
+  if (ids.length === 0) return;
+  const btn = document.getElementById('btn-export-selection');
+  btn.disabled = true;
+  const originalLbl = btn.textContent;
+  btn.textContent = '⏳ Génération...';
+  try {
+    // 1. Récupère les détails complets (jours_json) pour tous les IDs
+    const { bordereaux } = await batchFetchBordereaux(ids);
+    if (!bordereaux || bordereaux.length === 0) throw new Error('Aucun bordereau trouvé');
+
+    // Avertir si certains sont déjà exportés
+    const alreadyExported = bordereaux.filter(b => b.exported);
+    if (alreadyExported.length > 0) {
+      const ok = confirm(
+        `⚠ ${alreadyExported.length} bordereau(x) sur ${bordereaux.length} ont DÉJÀ été exporté(s) ` +
+        `dans un batch précédent. Les ré-exporter créera un nouveau batch et marquera ces bordereaux ` +
+        `comme ré-exportés (verrou souple). Continuer ?`
+      );
+      if (!ok) { btn.disabled = false; btn.textContent = originalLbl; return; }
+    }
+
+    // 2. Génère le CSV concaténé avec les codes PLD configurés (section 8)
+    const codes = getPldCodes();
+    const csvOptions = {
+      codeTotal: codes.total, codeNormales: codes.jour, codeNuit: codes.nuit,
+      codeSupT1: codes.t1, codeSupT2: codes.t2,
+      codeFerie: codes.ferie, codeDimanche: codes.dimanche,
+    };
+    const allRows = [];
+    for (const b of bordereaux) {
+      const jours = JSON.parse(b.jours_json || '[]');
+      // Reconstruit un "bordereau" exploitable par bordereauToRows
+      const bord = {
+        nom: b.nom, prenom: b.prenom, matricule: b.matricule,
+        contratDefaut: b.contrat_defaut, reference: null,
+        jours,
+      };
+      // dayHoursFn spécialisé : utilise les totaux déjà stockés dans jours_json
+      // (totalHt/totalHn calculés au moment du save) pour pas recalculer.
+      const dayHoursFromStored = (j) => ({
+        jour: Number(j.totalHt) || 0,
+        nuit: Number(j.totalHn) || 0,
+        totalMin: ((Number(j.totalHt) || 0) + (Number(j.totalHn) || 0)) * 60,
+      });
+      const rows = bordereauToRows(bord, dayHoursFromStored, csvOptions);
+      allRows.push(...rows);
+    }
+    const csvText = toCsv(allRows);
+
+    // 3. Upload en R2 + crée batch + marque exported
+    btn.textContent = '⏳ Archivage...';
+    const { batchId, count, periodStart, periodEnd } = await batchExport({
+      ids: bordereaux.map(b => b.id),
+      csv: csvText,
+    });
+
+    // 4. Téléchargement local
+    const fname = `pld-export-batch-${batchId}-${periodStart || 'nd'}_${periodEnd || 'nd'}.csv`;
+    const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    a.click();
+    URL.revokeObjectURL(a.href);
+
+    alert(`✓ Export CSV #${batchId} : ${count} bordereau(x) exporté(s) (${periodStart || '?'} → ${periodEnd || '?'}). Téléchargement lancé.`);
+    refreshHistory();
+  } catch (err) {
+    alert('Erreur export : ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLbl;
+  }
+});
 
 // --- RGPD ---
 document.getElementById('btn-rgpd-export').addEventListener('click', async () => {

@@ -134,6 +134,32 @@ export async function deleteBordereau(id) {
   return call(`/bordereaux/delete/${id}`, { method: 'DELETE' });
 }
 
+// Récupère les détails complets (jours_json inclus) pour une liste d'IDs —
+// usage principal : export CSV groupé.
+export async function batchFetchBordereaux(ids) {
+  if (!ids || ids.length === 0) return { bordereaux: [] };
+  return call('/bordereaux/batch-fetch', {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  });
+}
+
+// Archive le CSV en R2, crée un export_batches, marque exported=true.
+// Renvoie { batchId, r2Key, count, periodStart, periodEnd }.
+export async function batchExport({ ids, csv, notes }) {
+  return call('/bordereaux/batch-export', {
+    method: 'POST',
+    body: JSON.stringify({ ids, csv, notes }),
+  });
+}
+
+export async function listExportBatches() {
+  return call('/bordereaux/export-batches');
+}
+export function exportBatchDownloadUrl(id) {
+  return `${API_BASE}/bordereaux/export-batches/${id}/download`;
+}
+
 // Récupère un PDF depuis R2 (via proxy worker) en blob URL pour <img>/<iframe>.
 // L'appelant DOIT faire URL.revokeObjectURL() quand il ferme la preview.
 export async function fetchPdfBlobUrl(r2Key) {

@@ -476,6 +476,101 @@ async function handleBordereaux(request, env, url) {
     });
   }
 
+  // POST /bordereaux/batch-fetch — renvoie les détails complets (inclut jours_json)
+  // pour une liste d'IDs. Utilisé par l'export groupé côté client.
+  if (sub === "batch-fetch" && method === "POST") {
+    const { ids } = await request.json();
+    if (!Array.isArray(ids) || ids.length === 0) return json({ bordereaux: [] });
+    const placeholders = ids.map(() => "?").join(",");
+    const { results } = await env.DB.prepare(
+      `SELECT id, nom, prenom, matricule, client, contrat_defaut, semaine_du, semaine_au,
+              jours_json, status, exported
+       FROM bordereaux WHERE id IN (${placeholders})
+       ORDER BY semaine_du ASC, nom ASC, prenom ASC`
+    ).bind(...ids).all();
+    return json({ bordereaux: results });
+  }
+
+  // POST /bordereaux/batch-export — le client envoie { ids, csv, notes? },
+  // on archive le CSV en R2, on crée un export_batches, on marque tous les
+  // bordereaux comme exported=true + export_batch_id.
+  if (sub === "batch-export" && method === "POST") {
+    const { ids, csv, notes } = await request.json();
+    if (!Array.isArray(ids) || ids.length === 0) return json({ error: "ids requis" }, 400);
+    if (!csv || typeof csv !== "string") return json({ error: "csv requis" }, 400);
+
+    // Récupère les dates pour period_start / period_end
+    const placeholders = ids.map(() => "?").join(",");
+    const { results: dateRows } = await env.DB.prepare(
+      `SELECT MIN(semaine_du) AS pstart, MAX(semaine_du) AS pend FROM bordereaux WHERE id IN (${placeholders})`
+    ).bind(...ids).all();
+    const pStart = dateRows[0]?.pstart || null;
+    const pEnd   = dateRows[0]?.pend   || null;
+
+    // Archive le CSV en R2
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const ts = now.toISOString().replace(/[:.]/g, "-");
+    const r2Key = `exports/${y}/${m}/pld-${ts}-${ids.length}-bordereaux.csv`;
+    await env.BUCKET.put(r2Key, csv, {
+      httpMetadata: { contentType: "text/csv; charset=utf-8" },
+    });
+
+    // Crée le batch
+    const batchRes = await env.DB.prepare(`
+      INSERT INTO export_batches (user_email, nb_bordereaux, period_start, period_end, csv_r2_key, notes)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(user, ids.length, pStart, pEnd, r2Key, notes || null).run();
+    const batchId = batchRes.meta.last_row_id;
+
+    // Marque tous les bordereaux concernés comme exportés
+    await env.DB.prepare(`
+      UPDATE bordereaux
+      SET exported = 1, exported_at = datetime('now'), export_batch_id = ?
+      WHERE id IN (${placeholders})
+    `).bind(batchId, ...ids).run();
+
+    await audit(env, {
+      action: "batch_export",
+      userEmail: user, ip,
+      details: { batchId, count: ids.length, pStart, pEnd, r2Key },
+    });
+
+    return json({ ok: true, batchId, r2Key, count: ids.length, periodStart: pStart, periodEnd: pEnd });
+  }
+
+  // GET /bordereaux/export-batches — liste des exports passés
+  if (sub === "export-batches" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT id, created_at, user_email, nb_bordereaux, period_start, period_end,
+              r2_key IS NOT NULL AS has_csv, notes
+       FROM (SELECT *, csv_r2_key AS r2_key FROM export_batches)
+       ORDER BY created_at DESC LIMIT 500`
+    ).all();
+    return json({ batches: results });
+  }
+
+  // GET /bordereaux/export-batches/:id/download — re-télécharge un export archivé
+  if (/^export-batches\/\d+\/download$/.test(sub) && method === "GET") {
+    const id = parseInt(sub.split("/")[1], 10);
+    const row = await env.DB.prepare(
+      "SELECT csv_r2_key FROM export_batches WHERE id = ?"
+    ).bind(id).first();
+    if (!row) return json({ error: "Batch introuvable" }, 404);
+    if (!row.csv_r2_key) return json({ error: "CSV non archivé" }, 404);
+    const obj = await env.BUCKET.get(row.csv_r2_key);
+    if (!obj) return json({ error: "CSV introuvable en R2" }, 404);
+    await audit(env, { action: "export_redownload", userEmail: user, ip, details: { id } });
+    return new Response(obj.body, {
+      headers: {
+        ...CORS_BASE,
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="pld-export-batch-${id}.csv"`,
+      },
+    });
+  }
+
   // PATCH /bordereaux/update/:id — édite un bordereau existant (sans toucher
   // au pdf_r2_key ni au file_hash : l'original R2 reste intact).
   if (sub.startsWith("update/") && (method === "PATCH" || method === "PUT")) {

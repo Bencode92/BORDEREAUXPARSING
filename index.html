@@ -158,10 +158,13 @@
       <h2>6. Historique</h2>
       <div class="actions" style="margin-bottom: 0.5rem">
         <button id="btn-refresh-list" class="secondary">Rafraîchir la liste</button>
+        <button id="btn-export-selection" disabled>📤 Exporter la sélection en CSV</button>
+        <span id="selection-count" class="small" style="align-self:center"></span>
       </div>
       <table id="history-table">
         <thead>
           <tr>
+            <th><input type="checkbox" id="hist-select-all" title="Tout sélectionner / désélectionner"></th>
             <th>Date saisie</th>
             <th>Nom</th>
             <th>Prénom</th>
@@ -174,7 +177,7 @@
             <th>Actions</th>
           </tr>
         </thead>
-        <tbody id="history-body"><tr><td colspan="10" class="small">(cliquez sur « Rafraîchir »)</td></tr></tbody>
+        <tbody id="history-body"><tr><td colspan="11" class="small">(cliquez sur « Rafraîchir »)</td></tr></tbody>
       </table>
     </section>
 

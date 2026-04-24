@@ -324,6 +324,11 @@ input[data-auto-contrat="1"] {
 .counter.err  { border-left: 4px solid var(--c-danger); }
 .counter.err  .n { color: var(--c-danger); }
 
+/* ------- Lignes historique déjà exportées (teinte verte légère) ------- */
+#history-table tbody tr.already-exported { background: rgba(76, 175, 80, 0.06); }
+#history-table tbody tr.already-exported:hover { background: rgba(76, 175, 80, 0.14); }
+#history-table input[type=checkbox] { transform: scale(1.1); cursor: pointer; }
+
 /* ------- Récap hebdomadaire (section 5, breakdown CSV) ------- */
 .week-breakdown { margin-bottom: 1rem; }
 .week-breakdown:empty { display: none; }
