@@ -6,6 +6,7 @@ import {
   saveBordereau, listBordereaux, rgpdExport, rgpdForget,
   importIntermediaires, matchIntermediaire, listIntermediaires,
   listSnapshots, snapshotDownloadUrl,
+  sha256File, checkHashes,
 } from './archive.js';
 import { parseNotionCsv } from './parse-notion-csv.js';
 
@@ -613,6 +614,8 @@ document.getElementById('interm-filter').addEventListener('input', (e) => {
 
 // Stocke le dernier fichier uploadé pour pouvoir l'archiver en même temps
 let lastUploadedFile = null;
+// Hash SHA-256 du dernier fichier (pour dédup et save)
+let lastUploadedHash = null;
 
 // --- OCR ---
 const JOUR_INDEX = { lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6 };
@@ -741,7 +744,40 @@ function weekOverlapsMonth(lundiIso, moisReference) {
 
 async function handleFile(file) {
   lastUploadedFile = file;
+  lastUploadedHash = null;
   const moisReference = document.getElementById('f-mois-ref').value || null;
+
+  // 1. Hash SHA-256 du fichier avant tout — permet de skip l'OCR si déjà traité
+  setStatus(`Calcul du hash de ${file.name}...`);
+  try {
+    lastUploadedHash = await sha256File(file);
+  } catch (e) {
+    console.warn('Hash échoué', e);
+  }
+
+  // 2. Si on est authentifié, check côté serveur si ce hash existe déjà
+  if (lastUploadedHash && getAuthToken()) {
+    try {
+      const { known } = await checkHashes([lastUploadedHash]);
+      if (known.length > 0) {
+        const k = known[0];
+        const confirmParse = confirm(
+          `⚠ Ce fichier a déjà été archivé :\n\n` +
+          `  ${k.prenom} ${k.nom} · semaine ${k.semaineDu}\n` +
+          `  Bordereau #${k.bordereauId} · statut : ${k.status}\n\n` +
+          `Relancer l'OCR quand même ? (l'archivage sera refusé tant que ce fichier ` +
+          `n'est pas modifié)`
+        );
+        if (!confirmParse) {
+          setStatus(`Fichier ignoré (déjà archivé sous id=${k.bordereauId}).`, false);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Check-hashes échoué, on continue', e);
+    }
+  }
+
   setStatus(`OCR en cours sur ${file.name}...`);
   try {
     const data = await ocrBordereau(file, { moisReference });
@@ -1117,11 +1153,17 @@ document.getElementById('btn-archive').addEventListener('click', async () => {
       bordereau, dayHoursFn: dayHours, csvPld: csv,
       source: lastUploadedFile ? 'ocr' : 'manual',
       pdfFile: lastUploadedFile,
+      fileHash: lastUploadedHash,
     });
-    setArchiveStatus(`Archivé (id=${res.id})${res.pdfKey ? ` — PDF: ${res.pdfKey}` : ''}`);
+    setArchiveStatus(`Archivé (id=${res.id}, statut: pending_review)${res.pdfKey ? ` — PDF: ${res.pdfKey}` : ''}`);
     refreshHistory();
   } catch (err) {
-    setArchiveStatus(`Erreur archivage : ${err.message}`, true);
+    // Le worker renvoie 409 avec message « duplicate » si le hash existe déjà
+    if (/\b409\b/.test(err.message) && /duplicate/i.test(err.message)) {
+      setArchiveStatus(`⚠ Déjà archivé : ${err.message}`, true);
+    } else {
+      setArchiveStatus(`Erreur archivage : ${err.message}`, true);
+    }
   }
 });
 
@@ -1157,6 +1199,14 @@ async function refreshHistory() {
       body.innerHTML = '<tr><td colspan="9" class="small">Aucun bordereau archivé.</td></tr>';
       return;
     }
+    const statusBadge = (s) => {
+      if (s === 'validated') return '<span class="badge jour">✓ validé</span>';
+      if (s === 'rejected')  return '<span class="badge total">✗ rejeté</span>';
+      return '<span class="badge neutral">à réviser</span>';
+    };
+    const exportBadge = (b) => b.exported
+      ? `<span class="badge jour" title="Exporté le ${b.exported_at || '?'}${b.export_batch_id ? ' (batch #' + b.export_batch_id + ')' : ''}">✓ exporté</span>`
+      : '<span class="badge neutral">non exporté</span>';
     body.innerHTML = bordereaux.map(b => `
       <tr>
         <td>${(b.created_at || '').slice(0, 16)}</td>
@@ -1166,7 +1216,7 @@ async function refreshHistory() {
         <td>${b.semaine_du || ''}</td>
         <td class="num">${(b.total_ht ?? 0).toFixed(2)}</td>
         <td class="num">${(b.total_hn ?? 0).toFixed(2)}</td>
-        <td>${b.source || ''}</td>
+        <td>${statusBadge(b.status)} ${exportBadge(b)}</td>
         <td>${b.validated_by || ''}</td>
       </tr>
     `).join('');

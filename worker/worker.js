@@ -337,16 +337,67 @@ async function handleBordereaux(request, env, url) {
     return json({ ok: true });
   }
 
+  // POST /bordereaux/batch/check-hashes
+  // Body : { hashes: ["<sha256>", ...] }
+  // Réponse : { known: [{ hash, bordereauId, nom, prenom, semaineDu, status }], unknown: ["<sha256>", ...] }
+  // Utilisé côté client pour filtrer les fichiers déjà traités avant OCR.
+  if (sub === "batch/check-hashes" && method === "POST") {
+    const { hashes } = await request.json();
+    if (!Array.isArray(hashes) || hashes.length === 0) return json({ known: [], unknown: [] });
+    // D1 ne supporte pas IN (?), il faut construire les placeholders à la main.
+    const placeholders = hashes.map(() => "?").join(",");
+    const { results } = await env.DB.prepare(
+      `SELECT id, file_hash, nom, prenom, semaine_du, status
+       FROM bordereaux WHERE file_hash IN (${placeholders})`
+    ).bind(...hashes).all();
+    const knownMap = new Map(results.map(r => [r.file_hash, r]));
+    const known = [];
+    const unknown = [];
+    for (const h of hashes) {
+      if (knownMap.has(h)) {
+        const r = knownMap.get(h);
+        known.push({
+          hash: h,
+          bordereauId: r.id,
+          nom: r.nom, prenom: r.prenom,
+          semaineDu: r.semaine_du,
+          status: r.status,
+        });
+      } else {
+        unknown.push(h);
+      }
+    }
+    return json({ known, unknown });
+  }
+
   // POST /bordereaux/save
   if (sub === "save" && method === "POST") {
     const body = await request.json();
     const {
       nom, prenom, matricule, client, contratDefaut,
       semaineDu, semaineAu, totalHt, totalHn,
-      jours, csvPld, source, pdfBase64, pdfMediaType
+      jours, csvPld, source, pdfBase64, pdfMediaType,
+      fileHash,
     } = body;
 
     if (!nom || !prenom || !semaineDu) return json({ error: "nom/prenom/semaineDu requis" }, 400);
+
+    // Dédup par hash : si un bordereau avec ce même hash existe déjà,
+    // on renvoie un 409 avec l'ID existant. Le client décide quoi faire.
+    if (fileHash) {
+      const existing = await env.DB.prepare(
+        "SELECT id, nom, prenom, semaine_du, status FROM bordereaux WHERE file_hash = ? LIMIT 1"
+      ).bind(fileHash).first();
+      if (existing) {
+        return json({
+          error: "duplicate",
+          message: `Fichier déjà archivé (id=${existing.id}, ${existing.prenom} ${existing.nom}, semaine ${existing.semaine_du})`,
+          duplicate: true,
+          existingId: existing.id,
+          existing,
+        }, 409);
+      }
+    }
 
     // Upload PDF/image en R2 si présent
     let pdfKey = null;
@@ -365,14 +416,14 @@ async function handleBordereaux(request, env, url) {
     const res = await env.DB.prepare(`
       INSERT INTO bordereaux
       (nom, prenom, matricule, client, contrat_defaut, semaine_du, semaine_au,
-       total_ht, total_hn, jours_json, csv_pld, pdf_r2_key, source, validated_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       total_ht, total_hn, jours_json, csv_pld, pdf_r2_key, source, validated_by, file_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       nom, prenom, matricule || null, client || null, contratDefaut || null,
       semaineDu, semaineAu || semaineDu,
       totalHt || 0, totalHn || 0,
       JSON.stringify(jours || []),
-      csvPld || null, pdfKey, source || "manual", user
+      csvPld || null, pdfKey, source || "manual", user, fileHash || null
     ).run();
 
     const id = res.meta.last_row_id;
@@ -389,7 +440,7 @@ async function handleBordereaux(request, env, url) {
     const from = params.get("from");
     const to = params.get("to");
 
-    let query = "SELECT id, nom, prenom, client, semaine_du, semaine_au, total_ht, total_hn, source, validated_by, created_at FROM bordereaux WHERE 1=1";
+    let query = "SELECT id, nom, prenom, client, semaine_du, semaine_au, total_ht, total_hn, source, validated_by, created_at, status, exported, exported_at, export_batch_id, reviewed_by, reviewed_at, file_hash FROM bordereaux WHERE 1=1";
     const binds = [];
     if (nom) { query += " AND nom = ?"; binds.push(nom); }
     if (prenom) { query += " AND prenom = ?"; binds.push(prenom); }

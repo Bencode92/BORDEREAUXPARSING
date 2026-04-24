@@ -42,7 +42,23 @@ async function fileToB64(file) {
   });
 }
 
-export async function saveBordereau({ bordereau, dayHoursFn, csvPld, source = 'manual', pdfFile = null }) {
+// SHA-256 du contenu d'un File (hex) — via Web Crypto natif, pas de lib
+export async function sha256File(file) {
+  const buf = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// POST /bordereaux/batch/check-hashes → { known: [...], unknown: [...] }
+export async function checkHashes(hashes) {
+  if (!hashes || hashes.length === 0) return { known: [], unknown: [] };
+  return call('/bordereaux/batch/check-hashes', {
+    method: 'POST',
+    body: JSON.stringify({ hashes }),
+  });
+}
+
+export async function saveBordereau({ bordereau, dayHoursFn, csvPld, source = 'manual', pdfFile = null, fileHash = null }) {
   const jours = (bordereau.jours || []).map((j) => {
     const h = dayHoursFn(j);
     return { ...j, totalHt: h.jour, totalHn: h.nuit };
@@ -73,6 +89,7 @@ export async function saveBordereau({ bordereau, dayHoursFn, csvPld, source = 'm
       source,
       pdfBase64,
       pdfMediaType,
+      fileHash,
     }),
   });
 }
