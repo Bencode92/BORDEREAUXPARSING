@@ -9,6 +9,7 @@ import {
   sha256File, checkHashes,
 } from './archive.js';
 import { parseNotionCsv } from './parse-notion-csv.js';
+import { extractZip, convertHeicFile, processBatch } from './batch.js';
 
 const JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
@@ -1296,6 +1297,168 @@ document.getElementById('btn-rgpd-forget').addEventListener('click', async () =>
     out.textContent = `Erreur : ${err.message}`; out.style.color = '#d70015';
   }
 });
+
+// ===== Onglets Single / Batch =====
+const singleZone = document.getElementById('dropzone');
+const batchZone  = document.getElementById('batch-zone');
+const batchInput = document.getElementById('f-batch-file');
+document.querySelectorAll('.mode-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mode-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const mode = btn.dataset.mode;
+    singleZone.style.display = mode === 'single' ? '' : 'none';
+    batchZone.style.display  = mode === 'batch' ? '' : 'none';
+  });
+});
+
+// ===== Drop / click batch =====
+batchZone.addEventListener('click', () => batchInput.click());
+batchZone.addEventListener('dragover', e => { e.preventDefault(); batchZone.classList.add('drag'); });
+batchZone.addEventListener('dragleave', () => batchZone.classList.remove('drag'));
+batchZone.addEventListener('drop', async e => {
+  e.preventDefault();
+  batchZone.classList.remove('drag');
+  await handleBatchDrop(Array.from(e.dataTransfer.files));
+});
+batchInput.addEventListener('change', async e => {
+  await handleBatchDrop(Array.from(e.target.files));
+  e.target.value = '';
+});
+
+async function handleBatchDrop(initialFiles) {
+  if (!initialFiles || initialFiles.length === 0) return;
+  if (!getAuthToken()) {
+    renderBatchError('Renseigne ton token équipe (section 0) avant de lancer un batch.');
+    return;
+  }
+  // 1. Si un .zip : on l'extrait. Sinon on prend la sélection telle quelle.
+  let files = [];
+  const skippedFromZip = [];
+  for (const f of initialFiles) {
+    if (/\.zip$/i.test(f.name)) {
+      renderBatchProgress(`Extraction du ZIP ${f.name}…`);
+      const { files: extracted, skipped } = await extractZip(f);
+      files = files.concat(extracted);
+      skippedFromZip.push(...skipped);
+    } else {
+      files.push(f);
+    }
+  }
+  if (files.length === 0 && skippedFromZip.length === 0) {
+    renderBatchError('Aucun fichier exploitable trouvé.');
+    return;
+  }
+
+  // 2. Détection HEIC → modal de confirmation
+  const heicFiles = files.filter(f => /\.(heic|heif)$/i.test(f.name) || /heic|heif/i.test(f.type || ''));
+  if (heicFiles.length > 0) {
+    const convert = await confirm(`🍎 ${heicFiles.length} fichier${heicFiles.length > 1 ? 's' : ''} HEIC détecté${heicFiles.length > 1 ? 's' : ''} (format iPhone).\n\nClaude Vision n'accepte pas HEIC directement. Convertir en JPEG ?\n\nOK = convertir, Annuler = ignorer ces fichiers`);
+    if (convert) {
+      renderBatchProgress(`Conversion HEIC en cours…`);
+      const converted = [];
+      for (const f of heicFiles) {
+        try {
+          const jpg = await convertHeicFile(f);
+          converted.push({ old: f, new: jpg });
+        } catch (err) {
+          skippedFromZip.push({ file: f, reason: 'heic_conversion_failed', details: err.message });
+        }
+      }
+      files = files.map(f => {
+        const match = converted.find(c => c.old === f);
+        return match ? match.new : f;
+      }).filter(f => !skippedFromZip.some(s => s.file === f));
+    } else {
+      // Non-conversion : on ignore les HEIC
+      files = files.filter(f => !heicFiles.includes(f));
+      for (const f of heicFiles) {
+        skippedFromZip.push({ file: f, reason: 'heic_not_converted', details: 'HEIC ignoré à la demande de l\'utilisateur' });
+      }
+    }
+  }
+
+  // 3. Lance le batch
+  const moisReference = document.getElementById('f-mois-ref').value || null;
+  renderBatchStart(files);
+  const { results, report } = await processBatch(files, {
+    moisReference,
+    concurrency: 2,
+    onFileUpdate: (i, r) => renderFileRow(i, r),
+  });
+  renderBatchReport(results, report, skippedFromZip);
+  refreshHistory();
+}
+
+function renderBatchError(msg) {
+  const box = document.getElementById('batch-report');
+  box.style.display = 'block';
+  box.innerHTML = `<p class="small" style="color:var(--c-danger)">${msg}</p>`;
+}
+
+function renderBatchProgress(msg) {
+  const prog = document.getElementById('batch-progress');
+  prog.style.display = 'block';
+  prog.innerHTML = `<p class="small">${msg}</p>`;
+}
+
+function renderBatchStart(files) {
+  const prog = document.getElementById('batch-progress');
+  const report = document.getElementById('batch-report');
+  report.style.display = 'none';
+  prog.style.display = 'block';
+  prog.innerHTML = `
+    <h3 style="margin:0.5rem 0">Traitement en cours (${files.length} fichier${files.length > 1 ? 's' : ''})</h3>
+    <div class="batch-table-wrap">
+      <table class="batch-table">
+        <thead><tr><th>#</th><th>Fichier</th><th>Statut</th><th>Détail</th></tr></thead>
+        <tbody id="batch-tbody">
+          ${files.map((f, i) => `
+            <tr data-idx="${i}">
+              <td class="num">${i + 1}</td>
+              <td class="fname">${f.name}</td>
+              <td class="status"><span class="badge neutral">en attente</span></td>
+              <td class="detail small"></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderFileRow(i, r) {
+  const tr = document.querySelector(`#batch-tbody tr[data-idx="${i}"]`);
+  if (!tr) return;
+  const statusCell = tr.querySelector('.status');
+  const detailCell = tr.querySelector('.detail');
+  const pill = (cls, label) => `<span class="badge ${cls}">${label}</span>`;
+  if (r.status === 'pending')        statusCell.innerHTML = pill('neutral', 'en attente');
+  else if (r.status === 'processing') statusCell.innerHTML = pill('neutral', `⏳ ${r.step || 'traitement'}`);
+  else if (r.status === 'ok')         statusCell.innerHTML = pill('jour',    '🟢 archivé');
+  else if (r.status === 'duplicate')  statusCell.innerHTML = pill('neutral', '🟡 doublon');
+  else if (r.status === 'no_match')   statusCell.innerHTML = pill('total',   '🔵 pas en base');
+  else if (r.status === 'not_a_bordereau') statusCell.innerHTML = pill('total', '🔵 non-bordereau');
+  else if (r.status === 'error')      statusCell.innerHTML = pill('danger',  '🔴 erreur');
+  detailCell.textContent = r.reason || (r.person ? `${r.person.prenom} ${r.person.nom} #${r.bordereauId || '?'}` : '');
+}
+
+function renderBatchReport(results, report, skipped) {
+  const prog = document.getElementById('batch-progress');
+  const box  = document.getElementById('batch-report');
+  box.style.display = 'block';
+  const rejCount = skipped.length;
+  box.innerHTML = `
+    <h3 style="margin:1rem 0 0.5rem">Rapport d'ingestion</h3>
+    <div class="batch-counters">
+      <div class="counter ok"><span class="n">${report.ok}</span><span class="lbl">🟢 Nouveaux archivés</span></div>
+      <div class="counter dup"><span class="n">${report.duplicates}</span><span class="lbl">🟡 Doublons (déjà en base)</span></div>
+      <div class="counter skip"><span class="n">${report.noMatch + report.notBordereau + rejCount}</span><span class="lbl">🔵 Écartés (non-bordereau / hors base)</span></div>
+      <div class="counter err"><span class="n">${report.errors}</span><span class="lbl">🔴 Erreurs</span></div>
+    </div>
+    <p class="small" style="margin-top:0.75rem">Tous les bordereaux archivés sont en <strong>statut « à réviser »</strong>. L'export CSV PLD (étape 4) ne les prendra qu'après validation manuelle.</p>
+  `;
+}
 
 buildRows();
 

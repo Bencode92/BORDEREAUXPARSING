@@ -70,11 +70,22 @@
           <input type="month" id="f-mois-ref">
         </div>
       </div>
+      <div class="mode-tabs">
+        <button id="tab-single" class="mode-tab active" data-mode="single">📄 Un bordereau</button>
+        <button id="tab-batch"  class="mode-tab"        data-mode="batch">🗂 Batch ZIP / multi-fichiers</button>
+      </div>
       <div id="dropzone" class="dropzone">
         <p><strong>Dépose ici</strong> une photo, PDF ou scan de bordereau (ou clique pour choisir)</p>
-        <input type="file" id="f-file" accept="image/*,application/pdf" style="display:none">
+        <input type="file" id="f-file" accept="image/*,application/pdf,.heic,.heif" style="display:none">
+      </div>
+      <div id="batch-zone" class="dropzone" style="display:none">
+        <p><strong>Dépose ici un ZIP</strong> contenant tous les bordereaux du jour (ou plusieurs fichiers).<br>
+           <span class="small">Formats acceptés : PDF, JPEG, PNG, WebP, HEIC (conversion proposée).</span></p>
+        <input type="file" id="f-batch-file" accept=".zip,image/*,application/pdf,.heic,.heif" multiple style="display:none">
       </div>
       <p id="ocr-status" class="small"></p>
+      <div id="batch-progress" style="display:none"></div>
+      <div id="batch-report"   style="display:none"></div>
     </section>
 
     <section class="card">

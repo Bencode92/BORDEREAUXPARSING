@@ -236,6 +236,86 @@ input[data-auto-contrat="1"] {
 .modal-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(232,130,92,0.3); }
 .modal-btn.secondary:hover { background: var(--c-surface-alt); box-shadow: none; }
 
+/* ------- Onglets mode single / batch ------- */
+.mode-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0.5rem;
+  border-bottom: 1px solid var(--c-border);
+}
+.mode-tab {
+  background: transparent;
+  color: var(--c-text-muted);
+  border: none;
+  padding: 0.55rem 1rem;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  font-weight: 500;
+  font-size: 0.9rem;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.mode-tab:hover { color: var(--c-text); transform: none; box-shadow: none; background: transparent; }
+.mode-tab.active {
+  color: var(--c-primary);
+  border-bottom-color: var(--c-primary);
+  font-weight: 700;
+}
+
+/* ------- Table de progression batch ------- */
+.batch-table-wrap {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+}
+.batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.batch-table th, .batch-table td {
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid var(--c-border);
+  text-align: left;
+}
+.batch-table th {
+  background: var(--c-surface-alt);
+  font-weight: 600;
+  color: var(--c-text-muted);
+  position: sticky; top: 0;
+}
+.batch-table td.fname { font-family: ui-monospace, SF Mono, Menlo, monospace; font-size: 0.82rem; }
+.batch-table tr:last-child td { border-bottom: none; }
+.badge.danger { background: var(--c-danger-bg); color: var(--c-danger); }
+
+/* ------- Compteurs rapport batch ------- */
+.batch-counters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+.counter {
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  background: var(--c-surface-alt);
+}
+.counter .n { font-size: 2rem; font-weight: 700; line-height: 1; }
+.counter .lbl { font-size: 0.82rem; color: var(--c-text-muted); }
+.counter.ok   { border-left: 4px solid #4CAF50; }
+.counter.ok   .n { color: #2E7D32; }
+.counter.dup  { border-left: 4px solid #FFB300; }
+.counter.dup  .n { color: #E65100; }
+.counter.skip { border-left: 4px solid #1976D2; }
+.counter.skip .n { color: #0D47A1; }
+.counter.err  { border-left: 4px solid var(--c-danger); }
+.counter.err  .n { color: var(--c-danger); }
+
 /* ------- Day rows (compact time inputs) ------- */
 .day-row input[type=time], .day-row input[type=date] {
   padding: 0.4rem 0.55rem;
