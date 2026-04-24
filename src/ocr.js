@@ -5,7 +5,28 @@
 const API_URL = 'https://studyforge-proxy.benoit-comas.workers.dev/';
 const MODEL = 'claude-sonnet-4-6';
 
-const SYSTEM_PROMPT_BASE = `Tu es un extracteur de données pour des bordereaux d'heures d'intérimaires français (agence Cameleons RH).
+const SYSTEM_PROMPT_BASE = `Tu es un extracteur de données pour des bordereaux français d'intérimaires (agence Cameleons RH).
+
+DEUX FORMATS DE BORDEREAUX À DISTINGUER :
+
+FORMAT A — « BORDEREAU D'HEURES » (hebdomadaire avec heures HH:MM) :
+- Titre visible : « BORDEREAU D'HEURES »
+- Table avec 7 lignes : Lundi, Mardi, Mercredi, Jeudi, Vendredi, Samedi, Dimanche.
+- Chaque jour = heures MATINÉE (de X h Y à X h Y) + APRÈS-MIDI (de X h Y à X h Y).
+- Renseigne la structure « jours » avec matinDebut / matinFin / amDebut / amFin (HH:MM).
+- Mets "type": "heures".
+
+FORMAT B — « BORDEREAU DE PRÉSENCE » (mensuel avec croix X) :
+- Titre visible : « BORDEREAU DE PRÉSENCE »
+- Table avec 30 ou 31 lignes numérotées (1 au 30/31 du mois).
+- Deux colonnes par jour : MATINÉE et APRÈS-MIDI (avec signatures / croix).
+- Si « X » (ou signature, ou croix) dans MATINÉE → demi-journée matin travaillée (= 3.5 h).
+- Si « X » (ou signature) dans APRÈS-MIDI → demi-journée après-midi travaillée (= 3.5 h).
+- Si les deux → journée complète (= 7 h).
+- Cellule vide ou rayée → jour non travaillé.
+- Renseigne la structure « presenceDays » (voir schéma) à la place de « jours ».
+- Renseigne aussi le « mois » (1..12) et « annee » à partir des champs « MOIS DE » et « ANNÉE ».
+- Mets "type": "presence".
 
 RÈGLE ABSOLUE N°1 : NE JAMAIS INVENTER DE DONNÉES.
 Si tu ne vois pas une information sur l'image, mets null. NE DEVINE PAS.
@@ -32,9 +53,11 @@ ERREURS FRÉQUENTES À ÉVITER :
 - En cas de doute sur un chiffre (0/2, 1/2, 1/7, 8/0), METS la valeur la plus probable ET ajoute le champ dans "doutes".
 - Vérifie la cohérence : si matinFin=12:31 et amDebut=14:26 et amFin semble commencer par "0", c'est probablement un shift qui se termine après minuit.
 
-Renvoie UNIQUEMENT un JSON valide au schéma suivant, sans texte avant/après, sans balises markdown :
+Renvoie UNIQUEMENT un JSON valide au schéma suivant, sans texte avant/après, sans balises markdown.
 
+Pour FORMAT A (bordereau d'heures) :
 {
+  "type": "heures",
   "nom": string,
   "prenom": string,
   "client": string | null,
@@ -52,6 +75,24 @@ Renvoie UNIQUEMENT un JSON valide au schéma suivant, sans texte avant/après, s
       "ferie": false,
       "doutes": ["matinDebut", ...]
     }
+  ],
+  "observationsClient": string | null,
+  "signe": boolean
+}
+
+Pour FORMAT B (bordereau de présence) :
+{
+  "type": "presence",
+  "nom": string,
+  "prenom": string,
+  "client": string | null,
+  "mois": 1..12,            // numérique
+  "annee": 2026,            // numérique
+  "doutesGlobaux": ["nom", "prenom", "mois", ...],
+  "presenceDays": [
+    { "day": 1, "matin": true|false, "apresMidi": true|false, "doutes": ["matin", "apresMidi"] },
+    { "day": 2, ... },
+    ...
   ],
   "observationsClient": string | null,
   "signe": boolean

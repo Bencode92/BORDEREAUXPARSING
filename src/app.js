@@ -695,9 +695,153 @@ function clearForm() {
   recompute();
 }
 
+// === Bordereau de présence (mensuel) → semaine hebdo exploitable ===
+// Etat courant si un bordereau de présence est chargé : on stocke le mois
+// complet et on navigue semaine par semaine via des boutons dédiés.
+let presenceState = null;  // { nom, prenom, client, mois, annee, presenceDays, weekIndex }
+
+function weeksOfMonth(annee, mois) {
+  // Retourne toutes les semaines (lundi→dimanche) qui TOUCHENT ce mois.
+  // Peut déborder le mois précédent ou suivant (on veut tous les jours de la
+  // semaine où tombe au moins un jour du mois).
+  const first = new Date(Date.UTC(annee, mois - 1, 1));
+  const last  = new Date(Date.UTC(annee, mois, 0));  // dernier jour du mois
+  const firstMonday = new Date(first);
+  const dow = firstMonday.getUTCDay();
+  firstMonday.setUTCDate(firstMonday.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+  const weeks = [];
+  let cur = new Date(firstMonday);
+  while (cur <= last) {
+    weeks.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 7);
+  }
+  return weeks;
+}
+
+// Pour une semaine donnée (lundi ISO), extrait les 7 jours de présence
+// correspondants depuis presenceDays (mapping sur day+mois).
+function buildJoursFromPresence(lundiIso, mois, annee, presenceDays) {
+  const JOURS = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'];
+  const byDay = new Map();
+  for (const d of (presenceDays || [])) byDay.set(d.day, d);
+  const out = [];
+  const d = new Date(lundiIso + 'T00:00:00Z');
+  for (let i = 0; i < 7; i++) {
+    const iso = d.toISOString().slice(0, 10);
+    const m = d.getUTCMonth() + 1;
+    const day = d.getUTCDate();
+    const presence = (m === mois && d.getUTCFullYear() === annee) ? byDay.get(day) : null;
+    // Demi-journée = 3.5h. Matin conventionnel = 09:00-12:30, après-midi = 14:00-17:30.
+    const j = {
+      jour: JOURS[i],
+      date: iso,
+      matinDebut: presence?.matin ? '09:00' : null,
+      matinFin:   presence?.matin ? '12:30' : null,
+      amDebut:    presence?.apresMidi ? '14:00' : null,
+      amFin:      presence?.apresMidi ? '17:30' : null,
+      ferie: false,
+      doutes: presence?.doutes || [],
+    };
+    out.push(j);
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
+function renderPresenceControls() {
+  let bar = document.getElementById('presence-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'presence-bar';
+    bar.className = 'presence-bar';
+    document.getElementById('ocr-card').after(bar);
+  }
+  if (!presenceState) { bar.style.display = 'none'; return; }
+  const { mois, annee, weekIndex, weeks, presenceDays } = presenceState;
+  const nbPresent = (presenceDays || []).filter(d => d.matin || d.apresMidi).length;
+  bar.style.display = 'block';
+  bar.innerHTML = `
+    <div class="presence-header">
+      <strong>📅 Bordereau de présence</strong> · ${MOIS_LONG[mois - 1]} ${annee} · ${nbPresent} jour(s) travaillé(s)
+    </div>
+    <p class="small">Semaine affichée : <strong>${weeks[weekIndex]}</strong> (${weekIndex + 1} / ${weeks.length}).
+       Archive chaque semaine séparément.</p>
+    <div class="presence-actions">
+      <button class="secondary" id="btn-presence-prev" ${weekIndex === 0 ? 'disabled' : ''}>← Semaine précédente</button>
+      <button class="secondary" id="btn-presence-next" ${weekIndex >= weeks.length - 1 ? 'disabled' : ''}>Semaine suivante →</button>
+    </div>
+  `;
+  document.getElementById('btn-presence-prev').onclick = () => switchPresenceWeek(-1);
+  document.getElementById('btn-presence-next').onclick = () => switchPresenceWeek(+1);
+}
+
+function switchPresenceWeek(delta) {
+  if (!presenceState) return;
+  const next = presenceState.weekIndex + delta;
+  if (next < 0 || next >= presenceState.weeks.length) return;
+  presenceState.weekIndex = next;
+  applyPresenceWeek();
+}
+
+function applyPresenceWeek() {
+  if (!presenceState) return;
+  const { weekIndex, weeks, mois, annee, presenceDays } = presenceState;
+  const lundi = weeks[weekIndex];
+  const jours = buildJoursFromPresence(lundi, mois, annee, presenceDays);
+  // Remet les données dans le formulaire existant
+  clearForm();
+  document.getElementById('f-nom').value = presenceState.nom || '';
+  document.getElementById('f-prenom').value = presenceState.prenom || '';
+  if (presenceState.client) document.getElementById('f-client').value = presenceState.client;
+  lundiInput.value = lundi;
+  syncDates();
+  for (const j of jours) {
+    const idx = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'].indexOf(j.jour);
+    if (idx < 0) continue;
+    const tr = tbody.querySelectorAll('tr')[idx];
+    if (!tr) continue;
+    ['matinDebut','matinFin','amDebut','amFin'].forEach(f => {
+      const el = tr.querySelector(`[data-field=${f}]`);
+      if (el && j[f]) el.value = j[f];
+    });
+  }
+  // Re-applique contrat par jour si personne déjà matchée
+  applyPerDayContrats();
+  recompute();
+  // Si un intérimaire matché cache currentPersonContrats, on réapplique
+  // le matching dès maintenant (utile quand la personne a 1 seul contrat).
+  renderPresenceControls();
+}
+
 function applyOcrResult(data) {
   clearForm();
   const doutesGlobaux = new Set(data.doutesGlobaux || []);
+
+  // === Format B : bordereau de présence (mensuel) ===
+  if (data.type === 'presence' && data.presenceDays) {
+    const mois = data.mois;
+    const annee = data.annee;
+    if (!mois || !annee) {
+      setStatus('⚠ Bordereau de présence détecté mais mois/année manquants.', true);
+      return;
+    }
+    const weeks = weeksOfMonth(annee, mois);
+    // Première semaine qui contient au moins un jour travaillé
+    let firstIdx = 0;
+    for (let i = 0; i < weeks.length; i++) {
+      const jours = buildJoursFromPresence(weeks[i], mois, annee, data.presenceDays);
+      if (jours.some(j => j.matinDebut || j.amDebut)) { firstIdx = i; break; }
+    }
+    presenceState = {
+      nom: data.nom, prenom: data.prenom, client: data.client,
+      mois, annee, presenceDays: data.presenceDays,
+      weeks, weekIndex: firstIdx,
+    };
+    applyPresenceWeek();
+    return;
+  }
+  presenceState = null;
+  renderPresenceControls();
   const markDoubt = (id, field) => {
     const el = document.getElementById(id);
     if (el && doutesGlobaux.has(field)) el.dataset.doute = '1';
@@ -785,9 +929,36 @@ function weekOverlapsMonth(lundiIso, moisReference) {
   return false;
 }
 
+// === Side preview : PDF/image collé à droite pour vérif pendant édition ===
+let sidePreviewUrl = null;
+function openSidePreview(file) {
+  if (!file) return;
+  if (sidePreviewUrl) URL.revokeObjectURL(sidePreviewUrl);
+  sidePreviewUrl = URL.createObjectURL(file);
+  const aside = document.getElementById('side-preview');
+  const body = document.getElementById('side-preview-body');
+  document.getElementById('side-preview-name').textContent = file.name;
+  const isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
+  body.innerHTML = isPdf
+    ? `<iframe src="${sidePreviewUrl}" class="side-preview-iframe"></iframe>`
+    : `<img src="${sidePreviewUrl}" class="side-preview-img" alt="">`;
+  aside.style.display = 'flex';
+  document.body.classList.add('with-side-preview');
+}
+function closeSidePreview() {
+  if (sidePreviewUrl) { URL.revokeObjectURL(sidePreviewUrl); sidePreviewUrl = null; }
+  document.getElementById('side-preview').style.display = 'none';
+  document.body.classList.remove('with-side-preview');
+}
+document.getElementById('side-preview-close').addEventListener('click', closeSidePreview);
+document.getElementById('side-preview-toggle').addEventListener('click', () => {
+  document.getElementById('side-preview').classList.toggle('expanded');
+});
+
 async function handleFile(file) {
   lastUploadedFile = file;
   lastUploadedHash = null;
+  openSidePreview(file);
   const moisReference = document.getElementById('f-mois-ref').value || null;
 
   // 1. Hash SHA-256 du fichier avant tout — permet de skip l'OCR si déjà traité
