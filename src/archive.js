@@ -104,6 +104,32 @@ export async function getBordereau(id) {
   return call(`/bordereaux/get/${id}`);
 }
 
+// PATCH — met à jour un bordereau existant (le PDF R2 original reste intact).
+export async function updateBordereau(id, { bordereau, dayHoursFn, csvPld }) {
+  const jours = (bordereau.jours || []).map((j) => {
+    const h = dayHoursFn(j);
+    return { ...j, totalHt: h.jour, totalHn: h.nuit };
+  });
+  const totalHt = jours.reduce((s, j) => s + (j.totalHt || 0), 0);
+  const totalHn = jours.reduce((s, j) => s + (j.totalHn || 0), 0);
+  return call(`/bordereaux/update/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      nom: bordereau.nom,
+      prenom: bordereau.prenom,
+      matricule: bordereau.matricule,
+      client: bordereau.client,
+      contratDefaut: bordereau.contratDefaut,
+      semaineDu: bordereau.semaineDu,
+      semaineAu: bordereau.semaineAu,
+      totalHt: Math.round(totalHt * 100) / 100,
+      totalHn: Math.round(totalHn * 100) / 100,
+      jours,
+      csvPld,
+    }),
+  });
+}
+
 export async function deleteBordereau(id) {
   return call(`/bordereaux/delete/${id}`, { method: 'DELETE' });
 }

@@ -316,6 +316,19 @@ input[data-auto-contrat="1"] {
 .counter.err  { border-left: 4px solid var(--c-danger); }
 .counter.err  .n { color: var(--c-danger); }
 
+/* ------- Bannière « mode édition » ------- */
+.edit-banner {
+  background: linear-gradient(135deg, #E8F4FD 0%, #D0E8FA 100%);
+  border-left: 4px solid #1976D2;
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--radius-sm);
+  margin: 1rem 2rem 0;
+  color: #0D47A1;
+}
+.edit-banner strong { font-size: 1rem; }
+.edit-banner p { margin: 0.25rem 0 0.5rem; color: #1565C0; }
+.edit-banner button { padding: 0.4rem 0.9rem; font-size: 0.85rem; }
+
 /* ------- Boutons compacts (actions historique) ------- */
 .btn-small {
   padding: 0.3rem 0.5rem;

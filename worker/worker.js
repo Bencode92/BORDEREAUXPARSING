@@ -476,6 +476,38 @@ async function handleBordereaux(request, env, url) {
     });
   }
 
+  // PATCH /bordereaux/update/:id — édite un bordereau existant (sans toucher
+  // au pdf_r2_key ni au file_hash : l'original R2 reste intact).
+  if (sub.startsWith("update/") && (method === "PATCH" || method === "PUT")) {
+    const id = parseInt(sub.slice("update/".length), 10);
+    if (!id) return json({ error: "id invalide" }, 400);
+    const body = await request.json();
+    const allowed = {
+      nom: "nom", prenom: "prenom", matricule: "matricule", client: "client",
+      contratDefaut: "contrat_defaut",
+      semaineDu: "semaine_du", semaineAu: "semaine_au",
+      totalHt: "total_ht", totalHn: "total_hn",
+      jours: "jours_json", csvPld: "csv_pld",
+    };
+    const sets = [];
+    const binds = [];
+    const changed = [];
+    for (const [key, col] of Object.entries(allowed)) {
+      if (body[key] !== undefined) {
+        const v = (key === 'jours') ? JSON.stringify(body[key] || []) : body[key];
+        sets.push(`${col} = ?`);
+        binds.push(v);
+        changed.push(key);
+      }
+    }
+    if (sets.length === 0) return json({ error: "Rien à mettre à jour" }, 400);
+    sets.push("updated_at = datetime('now')");
+    binds.push(id);
+    await env.DB.prepare(`UPDATE bordereaux SET ${sets.join(", ")} WHERE id = ?`).bind(...binds).run();
+    await audit(env, { action: "update", bordereauId: id, userEmail: user, ip, details: { fields: changed } });
+    return json({ ok: true, id, changed });
+  }
+
   // DELETE /bordereaux/delete/:id
   if (sub.startsWith("delete/") && method === "DELETE") {
     const id = parseInt(sub.slice(7), 10);

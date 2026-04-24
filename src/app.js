@@ -8,6 +8,7 @@ import {
   listSnapshots, snapshotDownloadUrl,
   sha256File, checkHashes,
   deleteBordereau, fetchPdfBlobUrl,
+  getBordereau, updateBordereau,
 } from './archive.js';
 import { parseNotionCsv } from './parse-notion-csv.js';
 import { extractZip, convertHeicFile, processBatch } from './batch.js';
@@ -636,6 +637,8 @@ document.getElementById('interm-filter').addEventListener('input', (e) => {
 let lastUploadedFile = null;
 // Hash SHA-256 du dernier fichier (pour dédup et save)
 let lastUploadedHash = null;
+// Si on est en train d'éditer un bordereau existant (vs en créer un nouveau)
+let editingBordereauId = null;
 
 // Modal « doublon détecté » — remplace confirm() natif pour avoir des boutons explicites.
 // Renvoie une Promise qui résout à true (relancer) ou false (ne pas relancer).
@@ -1374,22 +1377,34 @@ document.getElementById('btn-archive').addEventListener('click', async () => {
     const d = new Date(lundi); d.setDate(d.getDate() + 6);
     bordereau.semaineAu = d.toISOString().slice(0, 10);
   }
-  setArchiveStatus('Archivage en cours...');
+  setArchiveStatus(editingBordereauId ? 'Mise à jour en cours...' : 'Archivage en cours...');
   try {
-    const res = await saveBordereau({
-      bordereau, dayHoursFn: dayHours, csvPld: csv,
-      source: lastUploadedFile ? 'ocr' : 'manual',
-      pdfFile: lastUploadedFile,
-      fileHash: lastUploadedHash,
-    });
-    setArchiveStatus(`Archivé (id=${res.id}, statut: pending_review)${res.pdfKey ? ` — PDF: ${res.pdfKey}` : ''}`);
-    refreshHistory();
+    if (editingBordereauId) {
+      // Mode édition : PATCH sans toucher au PDF original
+      const res = await updateBordereau(editingBordereauId, {
+        bordereau, dayHoursFn: dayHours, csvPld: csv,
+      });
+      setArchiveStatus(`✓ Bordereau #${res.id} mis à jour (champs : ${(res.changed || []).join(', ')}).`);
+      editingBordereauId = null;
+      updateEditBanner();
+      refreshHistory();
+    } else {
+      // Mode création : POST classique
+      const res = await saveBordereau({
+        bordereau, dayHoursFn: dayHours, csvPld: csv,
+        source: lastUploadedFile ? 'ocr' : 'manual',
+        pdfFile: lastUploadedFile,
+        fileHash: lastUploadedHash,
+      });
+      setArchiveStatus(`Archivé (id=${res.id}, statut: pending_review)${res.pdfKey ? ` — PDF: ${res.pdfKey}` : ''}`);
+      refreshHistory();
+    }
   } catch (err) {
     // Le worker renvoie 409 avec message « duplicate » si le hash existe déjà
     if (/\b409\b/.test(err.message) && /duplicate/i.test(err.message)) {
       setArchiveStatus(`⚠ Déjà archivé : ${err.message}`, true);
     } else {
-      setArchiveStatus(`Erreur archivage : ${err.message}`, true);
+      setArchiveStatus(`Erreur : ${err.message}`, true);
     }
   }
 });
@@ -1414,6 +1429,109 @@ function setArchiveStatus(msg, isError = false) {
   const el = document.getElementById('archive-status');
   el.textContent = msg;
   el.style.color = isError ? '#d70015' : '#0f6b3c';
+}
+
+// --- Edition d'un bordereau existant : charge les données dans le formulaire
+//     et passe l'app en mode « édition » (Archiver devient PATCH).
+async function startEditFlow(id) {
+  try {
+    const b = await getBordereau(id);
+    if (!b) { alert('Bordereau introuvable.'); return; }
+    // Bascule en mode single et réinitialise le form
+    const singleTab = document.querySelector('.mode-tab[data-mode="single"]');
+    if (singleTab) singleTab.click();
+    clearForm();
+    // Charge les champs
+    document.getElementById('f-nom').value      = b.nom || '';
+    document.getElementById('f-prenom').value   = b.prenom || '';
+    document.getElementById('f-matricule').value = b.matricule || '';
+    document.getElementById('f-client').value   = b.client || '';
+    document.getElementById('f-contrat').value  = b.contrat_defaut || '';
+    if (b.semaine_du) {
+      lundiInput.value = b.semaine_du;
+      syncDates();
+    }
+    // Charge les jours
+    const jours = JSON.parse(b.jours_json || '[]');
+    const JOURS = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'];
+    for (const j of jours) {
+      const idxJour = j.jour ? JOURS.indexOf(String(j.jour).toLowerCase()) : -1;
+      let idx = idxJour;
+      if (idx < 0 && j.date && b.semaine_du) {
+        // Retrouve l'index par écart de jours
+        const d1 = new Date(b.semaine_du + 'T00:00:00Z');
+        const d2 = new Date(j.date + 'T00:00:00Z');
+        idx = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+      }
+      if (idx < 0 || idx > 6) continue;
+      const tr = tbody.querySelectorAll('tr')[idx];
+      if (!tr) continue;
+      const setF = (f, v) => {
+        const el = tr.querySelector(`[data-field=${f}]`);
+        if (el && v !== undefined && v !== null) el.value = v;
+      };
+      setF('matinDebut', j.matin?.debut);
+      setF('matinFin',   j.matin?.fin);
+      setF('amDebut',    j.apresMidi?.debut);
+      setF('amFin',      j.apresMidi?.fin);
+      if (j.contrat) setF('contrat', j.contrat);
+      const ferie = tr.querySelector('[data-field=ferie]');
+      if (ferie) ferie.checked = !!j.ferie;
+    }
+    recompute();
+    // Met l'état en édition et met à jour l'UI
+    editingBordereauId = id;
+    updateEditBanner();
+    // Affiche le PDF à droite si disponible
+    if (b.pdf_r2_key) {
+      try {
+        const { url, mediaType } = await fetchPdfBlobUrl(b.pdf_r2_key);
+        const aside = document.getElementById('side-preview');
+        const bodyEl = document.getElementById('side-preview-body');
+        document.getElementById('side-preview-name').textContent = `#${b.id} · ${b.prenom} ${b.nom}`;
+        bodyEl.innerHTML = mediaType.includes('pdf')
+          ? `<iframe src="${url}" class="side-preview-iframe"></iframe>`
+          : `<img src="${url}" class="side-preview-img" alt="">`;
+        aside.style.display = 'flex';
+        document.body.classList.add('with-side-preview');
+      } catch (e) {
+        console.warn('PDF preview indisponible', e);
+      }
+    }
+    document.getElementById('ocr-card').scrollIntoView({ behavior: 'smooth' });
+  } catch (err) {
+    alert('Erreur chargement : ' + err.message);
+  }
+}
+
+function cancelEditFlow() {
+  editingBordereauId = null;
+  updateEditBanner();
+  clearForm();
+}
+
+function updateEditBanner() {
+  let bar = document.getElementById('edit-banner');
+  const archiveBtn = document.getElementById('btn-archive');
+  if (editingBordereauId) {
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'edit-banner';
+      bar.className = 'edit-banner';
+      document.getElementById('ocr-card').before(bar);
+    }
+    bar.innerHTML = `
+      <strong>✏️ Mode édition — Bordereau #${editingBordereauId}</strong>
+      <p class="small">Tu modifies un bordereau déjà en base. Les changements mettront à jour l'existant (pas un nouveau).</p>
+      <button class="secondary" id="btn-cancel-edit">Annuler la modification</button>
+    `;
+    bar.style.display = 'block';
+    document.getElementById('btn-cancel-edit').onclick = cancelEditFlow;
+    if (archiveBtn) archiveBtn.textContent = 'Enregistrer les modifications';
+  } else {
+    if (bar) bar.style.display = 'none';
+    if (archiveBtn) archiveBtn.textContent = 'Archiver (D1 + R2)';
+  }
 }
 
 // --- Preview d'un bordereau archivé (depuis l'historique) ---
@@ -1601,6 +1719,7 @@ async function refreshHistory() {
         <td>${b.validated_by || ''}</td>
         <td>
           ${b.pdf_r2_key ? `<button class="btn-small" data-view-hist="${b.id}" title="Voir le PDF">👁</button>` : ''}
+          <button class="btn-small" data-edit="${b.id}" title="Modifier">✏️</button>
           <button class="btn-small danger" data-delete="${b.id}" title="Supprimer définitivement">🗑</button>
         </td>
       </tr>
@@ -1613,6 +1732,9 @@ async function refreshHistory() {
     });
     body.querySelectorAll('[data-view-hist]').forEach(btn => {
       btn.addEventListener('click', () => openHistoryPreview(parseInt(btn.dataset.viewHist, 10)));
+    });
+    body.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.addEventListener('click', () => startEditFlow(parseInt(btn.dataset.edit, 10)));
     });
   } catch (err) {
     body.innerHTML = `<tr><td colspan="9" style="color:#d70015">${err.message}</td></tr>`;
