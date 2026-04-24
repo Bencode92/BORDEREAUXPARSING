@@ -1326,6 +1326,83 @@ batchInput.addEventListener('change', async e => {
   e.target.value = '';
 });
 
+// Stocke les fichiers du dernier batch pour pouvoir les prévisualiser
+// après traitement (clic sur une ligne du tableau de progression).
+let lastBatchFiles = [];
+let lastBatchResults = [];
+
+// Modal de preview : affiche l'image ou le PDF d'un fichier du batch,
+// avec action « Traiter manuellement » qui bascule en mode single.
+function showBatchPreview(idx) {
+  const file = lastBatchFiles[idx];
+  const r = lastBatchResults[idx];
+  if (!file) return;
+  const objectUrl = URL.createObjectURL(file);
+  const isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-card preview-card">
+      <div class="preview-header">
+        <div>
+          <h3 style="margin:0">${file.name}</h3>
+          <p class="small" style="margin:0.25rem 0 0">
+            ${statusText(r?.status)}${r?.reason ? ' — ' + r.reason : ''}
+          </p>
+        </div>
+        <button class="modal-btn secondary" data-close>Fermer</button>
+      </div>
+      <div class="preview-body">
+        ${isPdf
+          ? `<iframe src="${objectUrl}" class="preview-iframe"></iframe>`
+          : `<img src="${objectUrl}" class="preview-img" alt="${file.name}">`}
+      </div>
+      <div class="preview-footer">
+        <p class="small">${file.type || 'type inconnu'} · ${Math.round(file.size / 1024)} KB</p>
+        <div class="modal-actions">
+          ${r?.status === 'no_match' || r?.status === 'not_a_bordereau' || r?.status === 'error'
+            ? `<button class="modal-btn" data-manual>Traiter manuellement (mode single)</button>`
+            : ''}
+        </div>
+      </div>
+    </div>
+  `;
+  const cleanup = () => {
+    URL.revokeObjectURL(objectUrl);
+    document.body.removeChild(overlay);
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') cleanup(); };
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay || e.target.dataset.close !== undefined) cleanup();
+    if (e.target.dataset.manual !== undefined) {
+      cleanup();
+      switchToSingleAndLoad(file);
+    }
+  });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(overlay);
+}
+
+function statusText(status) {
+  switch (status) {
+    case 'ok':              return '🟢 archivé';
+    case 'duplicate':       return '🟡 doublon (déjà en base)';
+    case 'no_match':        return '🔵 pas en base';
+    case 'not_a_bordereau': return '🔵 non-bordereau';
+    case 'error':           return '🔴 erreur';
+    case 'processing':      return '⏳ en cours';
+    default:                return 'en attente';
+  }
+}
+
+// Bascule en mode single et charge le fichier (utile pour les écartés).
+function switchToSingleAndLoad(file) {
+  document.querySelector('.mode-tab[data-mode="single"]').click();
+  handleFile(file);
+  document.getElementById('ocr-card').scrollIntoView({ behavior: 'smooth' });
+}
+
 async function handleBatchDrop(initialFiles) {
   if (!initialFiles || initialFiles.length === 0) return;
   if (!getAuthToken()) {
@@ -1380,12 +1457,18 @@ async function handleBatchDrop(initialFiles) {
 
   // 3. Lance le batch
   const moisReference = document.getElementById('f-mois-ref').value || null;
+  lastBatchFiles = files;
+  lastBatchResults = files.map(() => ({ status: 'pending' }));
   renderBatchStart(files);
   const { results, report } = await processBatch(files, {
     moisReference,
     concurrency: 2,
-    onFileUpdate: (i, r) => renderFileRow(i, r),
+    onFileUpdate: (i, r) => {
+      lastBatchResults[i] = r;
+      renderFileRow(i, r);
+    },
   });
+  lastBatchResults = results;
   renderBatchReport(results, report, skippedFromZip);
   refreshHistory();
 }
@@ -1409,22 +1492,36 @@ function renderBatchStart(files) {
   prog.style.display = 'block';
   prog.innerHTML = `
     <h3 style="margin:0.5rem 0">Traitement en cours (${files.length} fichier${files.length > 1 ? 's' : ''})</h3>
+    <p class="small" style="margin:0.25rem 0 0.5rem">Clique sur une ligne pour voir le bordereau.</p>
     <div class="batch-table-wrap">
       <table class="batch-table">
-        <thead><tr><th>#</th><th>Fichier</th><th>Statut</th><th>Détail</th></tr></thead>
+        <thead><tr><th>#</th><th>Fichier</th><th>Statut</th><th>Détail</th><th></th></tr></thead>
         <tbody id="batch-tbody">
           ${files.map((f, i) => `
-            <tr data-idx="${i}">
+            <tr data-idx="${i}" class="batch-row">
               <td class="num">${i + 1}</td>
               <td class="fname">${f.name}</td>
               <td class="status"><span class="badge neutral">en attente</span></td>
               <td class="detail small"></td>
+              <td class="action"><button class="btn-view" data-view="${i}">👁 Voir</button></td>
             </tr>
           `).join('')}
         </tbody>
       </table>
     </div>
   `;
+  // Câblage click sur ligne entière ou bouton 👁
+  const tbody = document.getElementById('batch-tbody');
+  tbody.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-view]');
+    if (btn) {
+      e.stopPropagation();
+      showBatchPreview(parseInt(btn.dataset.view, 10));
+      return;
+    }
+    const tr = e.target.closest('tr.batch-row');
+    if (tr) showBatchPreview(parseInt(tr.dataset.idx, 10));
+  });
 }
 
 function renderFileRow(i, r) {

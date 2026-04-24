@@ -144,7 +144,33 @@ export async function ocrBordereau(file, { moisReference } = {}) {
   }
   const data = await res.json();
   const text = (data.content || []).map(c => c.text || '').join('').trim();
-  const m = text.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error('Réponse Claude non-JSON: ' + text.slice(0, 200));
-  return JSON.parse(m[0]);
+  return JSON.parse(extractFirstJsonObject(text));
+}
+
+// Extrait le premier objet JSON top-level du texte Claude, même si entouré
+// de markdown fences ou suivi d'explications. Suit la balance des { } en
+// respectant les strings pour ignorer les accolades échappées.
+function extractFirstJsonObject(raw) {
+  let text = String(raw || '').trim();
+  // Strip markdown fences ```json ... ```
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  const start = text.indexOf('{');
+  if (start < 0) throw new Error('Réponse Claude non-JSON (aucun {): ' + text.slice(0, 200));
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc) { esc = false; continue; }
+      if (c === '\\') { esc = true; continue; }
+      if (c === '"') { inStr = false; continue; }
+    } else {
+      if (c === '"') { inStr = true; continue; }
+      if (c === '{') depth++;
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+  }
+  throw new Error('JSON Claude non équilibré (accolades déséquilibrées): ' + text.slice(0, 200));
 }
