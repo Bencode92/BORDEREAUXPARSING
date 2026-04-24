@@ -617,6 +617,48 @@ let lastUploadedFile = null;
 // Hash SHA-256 du dernier fichier (pour dédup et save)
 let lastUploadedHash = null;
 
+// Modal « doublon détecté » — remplace confirm() natif pour avoir des boutons explicites.
+// Renvoie une Promise qui résout à true (relancer) ou false (ne pas relancer).
+function showDuplicateModal({ prenom, nom, semaineDu, bordereauId, status }) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <h3>⚠ Fichier déjà archivé</h3>
+        <p class="small">Ce PDF/image a déjà été traité et enregistré :</p>
+        <div class="modal-info">
+          <div><strong>${prenom || '?'} ${nom || '?'}</strong></div>
+          <div class="small">Semaine du ${semaineDu || '?'}</div>
+          <div class="small">Bordereau #${bordereauId} · statut : ${status || '?'}</div>
+        </div>
+        <p class="small">L'archivage sera refusé tant que le fichier n'est pas modifié.
+           Tu peux quand même relancer l'OCR pour vérifier la lecture.</p>
+        <div class="modal-actions">
+          <button class="modal-btn secondary" data-answer="skip">Ne pas relancer</button>
+          <button class="modal-btn" data-answer="rerun">Relancer l'OCR</button>
+        </div>
+      </div>
+    `;
+    const cleanup = (answer) => {
+      document.body.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+      resolve(answer === 'rerun');
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') cleanup('skip');
+      else if (e.key === 'Enter') cleanup('rerun');
+    };
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) cleanup('skip');
+      const btn = e.target.closest('[data-answer]');
+      if (btn) cleanup(btn.dataset.answer);
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+  });
+}
+
 // --- OCR ---
 const JOUR_INDEX = { lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6 };
 
@@ -761,14 +803,8 @@ async function handleFile(file) {
       const { known } = await checkHashes([lastUploadedHash]);
       if (known.length > 0) {
         const k = known[0];
-        const confirmParse = confirm(
-          `⚠ Ce fichier a déjà été archivé :\n\n` +
-          `  ${k.prenom} ${k.nom} · semaine ${k.semaineDu}\n` +
-          `  Bordereau #${k.bordereauId} · statut : ${k.status}\n\n` +
-          `Relancer l'OCR quand même ? (l'archivage sera refusé tant que ce fichier ` +
-          `n'est pas modifié)`
-        );
-        if (!confirmParse) {
+        const rerun = await showDuplicateModal(k);
+        if (!rerun) {
           setStatus(`Fichier ignoré (déjà archivé sous id=${k.bordereauId}).`, false);
           return;
         }

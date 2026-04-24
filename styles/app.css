@@ -176,6 +176,66 @@ input[data-auto-contrat="1"] {
   font-weight: 600;
 }
 
+/* ------- Modal overlay (duplicate, confirmations) ------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 10, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(3px);
+  animation: fadeIn 0.15s ease-out;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal-card {
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  box-shadow: 0 15px 45px rgba(0,0,0,0.25);
+  padding: 1.5rem;
+  max-width: 440px;
+  width: calc(100% - 2rem);
+}
+.modal-card h3 {
+  margin: 0 0 0.75rem;
+  color: var(--c-danger);
+  font-size: 1.05rem;
+}
+.modal-info {
+  background: var(--c-surface-alt);
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  margin: 0.75rem 0;
+  border-left: 3px solid var(--c-primary);
+}
+.modal-info strong { color: var(--c-primary); }
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+.modal-btn {
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-family: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: none;
+  background: var(--gradient-primary);
+  color: white;
+}
+.modal-btn.secondary {
+  background: transparent;
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+}
+.modal-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(232,130,92,0.3); }
+.modal-btn.secondary:hover { background: var(--c-surface-alt); box-shadow: none; }
+
 /* ------- Day rows (compact time inputs) ------- */
 .day-row input[type=time], .day-row input[type=date] {
   padding: 0.4rem 0.55rem;
