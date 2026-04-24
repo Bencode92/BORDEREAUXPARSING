@@ -155,13 +155,31 @@ function recompute() {
   }
 }
 
+// ===== Paramètres export PLD (codes configurables, persistés localStorage) =====
+const PLD_CODES_KEY = 'cameleons_pld_codes';
+const DEFAULT_PLD_CODES = { jour: 'HJ', nuit: 'HN', cp: 'CP', rtt: 'RTT', am: 'AM' };
+
+export function getPldCodes() {
+  try {
+    const stored = localStorage.getItem(PLD_CODES_KEY);
+    if (!stored) return { ...DEFAULT_PLD_CODES };
+    return { ...DEFAULT_PLD_CODES, ...JSON.parse(stored) };
+  } catch {
+    return { ...DEFAULT_PLD_CODES };
+  }
+}
+function setPldCodes(codes) {
+  localStorage.setItem(PLD_CODES_KEY, JSON.stringify(codes));
+}
+
 function generate() {
   const bordereau = collectBordereau();
   if (!bordereau.nom || !bordereau.prenom) {
     alert('Nom et Prénom obligatoires.');
     return null;
   }
-  const rows = bordereauToRows(bordereau, dayHours);
+  const c = getPldCodes();
+  const rows = bordereauToRows(bordereau, dayHours, { codeJour: c.jour, codeNuit: c.nuit });
   if (rows.length === 0) {
     alert('Aucune heure saisie.');
     return null;
@@ -1736,6 +1754,37 @@ buildRows();
   const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const input = document.getElementById('f-mois-ref');
   if (input && !input.value) input.value = ym;
+})();
+
+// ===== Wire up de la section 8 (Paramètres export PLD) =====
+(() => {
+  const stored = getPldCodes();
+  const fields = [
+    ['p-code-jour', 'jour', DEFAULT_PLD_CODES.jour],
+    ['p-code-nuit', 'nuit', DEFAULT_PLD_CODES.nuit],
+    ['p-code-cp',   'cp',   DEFAULT_PLD_CODES.cp],
+    ['p-code-rtt',  'rtt',  DEFAULT_PLD_CODES.rtt],
+    ['p-code-am',   'am',   DEFAULT_PLD_CODES.am],
+  ];
+  const statusEl = document.getElementById('pld-settings-status');
+  const showSaved = () => {
+    if (!statusEl) return;
+    statusEl.textContent = '✓ Paramètres sauvegardés dans ce navigateur';
+    statusEl.style.color = 'var(--c-success)';
+    clearTimeout(statusEl._t);
+    statusEl._t = setTimeout(() => statusEl.textContent = '', 1800);
+  };
+  for (const [id, key, def] of fields) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.value = stored[key] || def;
+    el.addEventListener('input', () => {
+      const codes = getPldCodes();
+      codes[key] = (el.value.trim() || def).toUpperCase();
+      setPldCodes(codes);
+      showSaved();
+    });
+  }
 })();
 
 // Pré-remplissage démo : semaine du 20/04/2026, Benoit COMAS Hermès

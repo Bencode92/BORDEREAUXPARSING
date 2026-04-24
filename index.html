@@ -189,6 +189,25 @@
       </div>
       <p id="rgpd-status" class="small"></p>
     </section>
+
+    <section class="card" id="pld-settings-card">
+      <details>
+        <summary><h2 style="display:inline;margin:0">8. Paramètres export PLD</h2></summary>
+        <p class="small" style="margin-top:0.75rem">Codes utilisés dans le CSV d'import Tempo 7. Doivent correspondre à ton onglet <strong>Correspondances → Heures</strong> dans PLD (ex : HJ = heure de jour cochée, HN = heure de nuit cochée). Les modifs sont sauvegardées automatiquement.</p>
+        <h3 style="font-size:0.95rem;margin:1rem 0 0.4rem">Heures</h3>
+        <div class="row">
+          <div><label>Code heure de jour</label><input type="text" id="p-code-jour" placeholder="HJ"></div>
+          <div><label>Code heure de nuit</label><input type="text" id="p-code-nuit" placeholder="HN"></div>
+        </div>
+        <h3 style="font-size:0.95rem;margin:1rem 0 0.4rem">Absences <span class="small">(pour plus tard)</span></h3>
+        <div class="row">
+          <div><label>Congé payé</label><input type="text" id="p-code-cp" placeholder="CP"></div>
+          <div><label>RTT</label><input type="text" id="p-code-rtt" placeholder="RTT"></div>
+          <div><label>Arrêt maladie</label><input type="text" id="p-code-am" placeholder="AM"></div>
+        </div>
+        <p id="pld-settings-status" class="small" style="margin-top:0.75rem"></p>
+      </details>
+    </section>
   </main>
 
   <aside id="side-preview" class="side-preview" style="display:none">

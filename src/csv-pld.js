@@ -72,8 +72,10 @@ function parseContratField(raw) {
 
 // Helper : construit les lignes à partir d'un bordereau complet.
 // bordereau = { nom, prenom, matricule?, contratDefaut?, reference?, jours: [{date, matin, apresMidi, contrat?, ferie?}] }
-// Chaque jour génère 1 ou 2 lignes (HT et/ou HN).
-export function bordereauToRows(bordereau, dayHoursFn) {
+// options = { codeJour, codeNuit } — codes PLD configurés dans l'app (section 8).
+// Chaque jour génère 1 ou 2 lignes (jour et/ou nuit).
+export function bordereauToRows(bordereau, dayHoursFn, options = {}) {
+  const { codeJour = 'HJ', codeNuit = 'HN' } = options;
   const rows = [];
   const defaults = parseContratField(bordereau.contratDefaut);
   for (const jour of bordereau.jours || []) {
@@ -91,10 +93,10 @@ export function bordereauToRows(bordereau, dayHoursFn) {
       reference: bordereau.reference,
     };
     if (h.jour > 0) {
-      rows.push({ ...base, code: 'HT', libelle: 'Heures travaillées', quantite: h.jour.toFixed(2) });
+      rows.push({ ...base, code: codeJour, libelle: 'Heures de jour', quantite: h.jour.toFixed(2) });
     }
     if (h.nuit > 0) {
-      rows.push({ ...base, code: 'HN', libelle: 'Heures de nuit', quantite: h.nuit.toFixed(2) });
+      rows.push({ ...base, code: codeNuit, libelle: 'Heures de nuit', quantite: h.nuit.toFixed(2) });
     }
   }
   return rows;
