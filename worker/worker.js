@@ -440,7 +440,7 @@ async function handleBordereaux(request, env, url) {
     const from = params.get("from");
     const to = params.get("to");
 
-    let query = "SELECT id, nom, prenom, client, semaine_du, semaine_au, total_ht, total_hn, source, validated_by, created_at, status, exported, exported_at, export_batch_id, reviewed_by, reviewed_at, file_hash FROM bordereaux WHERE 1=1";
+    let query = "SELECT id, nom, prenom, client, semaine_du, semaine_au, total_ht, total_hn, source, validated_by, created_at, status, exported, exported_at, export_batch_id, reviewed_by, reviewed_at, file_hash, pdf_r2_key FROM bordereaux WHERE 1=1";
     const binds = [];
     if (nom) { query += " AND nom = ?"; binds.push(nom); }
     if (prenom) { query += " AND prenom = ?"; binds.push(prenom); }

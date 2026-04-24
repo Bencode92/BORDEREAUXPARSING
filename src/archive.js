@@ -108,6 +108,15 @@ export async function deleteBordereau(id) {
   return call(`/bordereaux/delete/${id}`, { method: 'DELETE' });
 }
 
+// Récupère un PDF depuis R2 (via proxy worker) en blob URL pour <img>/<iframe>.
+// L'appelant DOIT faire URL.revokeObjectURL() quand il ferme la preview.
+export async function fetchPdfBlobUrl(r2Key) {
+  const res = await fetch(`${API_BASE}/bordereaux/pdf/${r2Key}`, { headers: headers() });
+  if (!res.ok) throw new Error(`PDF ${res.status}: ${res.statusText}`);
+  const blob = await res.blob();
+  return { url: URL.createObjectURL(blob), mediaType: blob.type || 'application/octet-stream' };
+}
+
 export async function rgpdExport(nom, prenom) {
   const q = new URLSearchParams({ nom, prenom });
   return call(`/bordereaux/rgpd/export?${q.toString()}`);

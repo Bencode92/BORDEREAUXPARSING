@@ -7,6 +7,7 @@ import {
   importIntermediaires, matchIntermediaire, listIntermediaires,
   listSnapshots, snapshotDownloadUrl,
   sha256File, checkHashes,
+  deleteBordereau, fetchPdfBlobUrl,
 } from './archive.js';
 import { parseNotionCsv } from './parse-notion-csv.js';
 import { extractZip, convertHeicFile, processBatch } from './batch.js';
@@ -1415,6 +1416,160 @@ function setArchiveStatus(msg, isError = false) {
   el.style.color = isError ? '#d70015' : '#0f6b3c';
 }
 
+// --- Preview d'un bordereau archivé (depuis l'historique) ---
+async function openHistoryPreview(id) {
+  const b = (window.__historyBordereaux || []).find(x => x.id === id);
+  if (!b) return;
+  if (!b.pdf_r2_key) { alert('Pas de PDF archivé pour ce bordereau.'); return; }
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-card preview-card">
+      <div class="preview-header">
+        <div>
+          <h3 style="margin:0">${b.prenom} ${b.nom}</h3>
+          <p class="small" style="margin:0.25rem 0 0">${b.client || '?'} · semaine ${b.semaine_du} · HT ${(b.total_ht ?? 0).toFixed(2)}</p>
+        </div>
+        <button class="modal-btn secondary" data-close>Fermer</button>
+      </div>
+      <div class="preview-body"><p class="small">Chargement du PDF…</p></div>
+    </div>
+  `;
+  const cleanup = (blobUrl) => {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    document.body.removeChild(overlay);
+    document.removeEventListener('keydown', onKey);
+  };
+  let currentBlob = null;
+  const onKey = (e) => { if (e.key === 'Escape') cleanup(currentBlob); };
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay || e.target.dataset.close !== undefined) cleanup(currentBlob);
+  });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(overlay);
+  try {
+    const { url, mediaType } = await fetchPdfBlobUrl(b.pdf_r2_key);
+    currentBlob = url;
+    const body = overlay.querySelector('.preview-body');
+    body.innerHTML = mediaType.includes('pdf')
+      ? `<iframe src="${url}" class="preview-iframe"></iframe>`
+      : `<img src="${url}" class="preview-img" alt="">`;
+  } catch (err) {
+    overlay.querySelector('.preview-body').innerHTML = `<p class="small" style="color:var(--c-danger)">Erreur chargement : ${err.message}</p>`;
+  }
+}
+
+// --- Suppression avec double confirmation (1 = aperçu, 2 = tape SUPPRIMER) ---
+async function startDeleteFlow(id) {
+  const b = (window.__historyBordereaux || []).find(x => x.id === id);
+  if (!b) return;
+  // Étape 1 : modal avec aperçu PDF et infos, bouton Continuer
+  const overlay1 = document.createElement('div');
+  overlay1.className = 'modal-overlay';
+  overlay1.innerHTML = `
+    <div class="modal-card preview-card">
+      <div class="preview-header">
+        <div>
+          <h3 style="margin:0;color:var(--c-danger)">🗑 Supprimer ce bordereau ?</h3>
+          <p class="small" style="margin:0.25rem 0 0">
+            <strong>${b.prenom} ${b.nom}</strong> · ${b.client || '?'} · semaine ${b.semaine_du}
+            · HT ${(b.total_ht ?? 0).toFixed(2)} · HN ${(b.total_hn ?? 0).toFixed(2)}
+            · statut ${b.status || '?'}
+          </p>
+        </div>
+        <button class="modal-btn secondary" data-close>Annuler</button>
+      </div>
+      <div class="preview-body"><p class="small">Chargement du PDF…</p></div>
+      <div class="preview-footer">
+        <p class="small" style="color:var(--c-danger)">
+          ⚠ Action <strong>irréversible</strong> : supprime la ligne D1 + le PDF original en R2.
+          ${b.exported ? '<br>⚠ Ce bordereau a DÉJÀ été exporté dans PLD (batch #' + (b.export_batch_id || '?') + ').' : ''}
+        </p>
+        <div class="modal-actions">
+          <button class="modal-btn" data-next>Continuer vers la suppression</button>
+        </div>
+      </div>
+    </div>
+  `;
+  let blobUrl1 = null;
+  const cleanup1 = () => {
+    if (blobUrl1) URL.revokeObjectURL(blobUrl1);
+    document.body.removeChild(overlay1);
+  };
+  overlay1.addEventListener('click', async (e) => {
+    if (e.target === overlay1 || e.target.dataset.close !== undefined) { cleanup1(); return; }
+    if (e.target.dataset.next !== undefined) {
+      cleanup1();
+      showFinalDeleteConfirmation(b);
+    }
+  });
+  document.body.appendChild(overlay1);
+  if (b.pdf_r2_key) {
+    try {
+      const { url, mediaType } = await fetchPdfBlobUrl(b.pdf_r2_key);
+      blobUrl1 = url;
+      const body = overlay1.querySelector('.preview-body');
+      body.innerHTML = mediaType.includes('pdf')
+        ? `<iframe src="${url}" class="preview-iframe"></iframe>`
+        : `<img src="${url}" class="preview-img" alt="">`;
+    } catch (err) {
+      overlay1.querySelector('.preview-body').innerHTML = `<p class="small" style="color:var(--c-danger)">Erreur PDF : ${err.message}</p>`;
+    }
+  } else {
+    overlay1.querySelector('.preview-body').innerHTML = `<p class="small">Pas de PDF archivé pour ce bordereau.</p>`;
+  }
+}
+
+function showFinalDeleteConfirmation(b) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <h3>⚠ Confirmation finale</h3>
+      <p class="small">Tu vas supprimer <strong>définitivement</strong> :</p>
+      <div class="modal-info">
+        <div><strong>${b.prenom} ${b.nom}</strong></div>
+        <div class="small">${b.client || '?'} · semaine du ${b.semaine_du}</div>
+        <div class="small">Bordereau #${b.id}</div>
+      </div>
+      <p class="small">Pour confirmer, tape <strong>SUPPRIMER</strong> en majuscules :</p>
+      <input type="text" id="del-confirm-input" placeholder="SUPPRIMER" autocomplete="off" style="width:100%;margin-top:0.5rem">
+      <div class="modal-actions" style="margin-top:1rem">
+        <button class="modal-btn secondary" data-close>Annuler</button>
+        <button class="modal-btn" id="btn-del-confirm" disabled style="background:var(--c-danger)">Supprimer définitivement</button>
+      </div>
+      <p id="del-status" class="small" style="margin-top:0.5rem"></p>
+    </div>
+  `;
+  const cleanup = () => { if (overlay.parentNode) document.body.removeChild(overlay); };
+  const input = overlay.querySelector('#del-confirm-input');
+  const btn   = overlay.querySelector('#btn-del-confirm');
+  const status = overlay.querySelector('#del-status');
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay || e.target.dataset.close !== undefined) cleanup();
+  });
+  input.addEventListener('input', () => {
+    btn.disabled = input.value.trim() !== 'SUPPRIMER';
+  });
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    status.textContent = 'Suppression en cours…';
+    status.style.color = 'var(--c-text-muted)';
+    try {
+      await deleteBordereau(b.id);
+      status.textContent = '✓ Supprimé';
+      status.style.color = 'var(--c-success)';
+      setTimeout(() => { cleanup(); refreshHistory(); }, 700);
+    } catch (err) {
+      status.textContent = `Erreur : ${err.message}`;
+      status.style.color = 'var(--c-danger)';
+      btn.disabled = false;
+    }
+  });
+  document.body.appendChild(overlay);
+  input.focus();
+}
+
 // --- Historique ---
 async function refreshHistory() {
   const body = document.getElementById('history-body');
@@ -1434,7 +1589,7 @@ async function refreshHistory() {
       ? `<span class="badge jour" title="Exporté le ${b.exported_at || '?'}${b.export_batch_id ? ' (batch #' + b.export_batch_id + ')' : ''}">✓ exporté</span>`
       : '<span class="badge neutral">non exporté</span>';
     body.innerHTML = bordereaux.map(b => `
-      <tr>
+      <tr data-id="${b.id}">
         <td>${(b.created_at || '').slice(0, 16)}</td>
         <td>${b.nom || ''}</td>
         <td>${b.prenom || ''}</td>
@@ -1444,8 +1599,21 @@ async function refreshHistory() {
         <td class="num">${(b.total_hn ?? 0).toFixed(2)}</td>
         <td>${statusBadge(b.status)} ${exportBadge(b)}</td>
         <td>${b.validated_by || ''}</td>
+        <td>
+          ${b.pdf_r2_key ? `<button class="btn-small" data-view-hist="${b.id}" title="Voir le PDF">👁</button>` : ''}
+          <button class="btn-small danger" data-delete="${b.id}" title="Supprimer définitivement">🗑</button>
+        </td>
       </tr>
     `).join('');
+    // Stocke les bordereaux pour retrouver leur pdf_r2_key au clic
+    window.__historyBordereaux = bordereaux;
+    // Wire les boutons
+    body.querySelectorAll('[data-delete]').forEach(btn => {
+      btn.addEventListener('click', () => startDeleteFlow(parseInt(btn.dataset.delete, 10)));
+    });
+    body.querySelectorAll('[data-view-hist]').forEach(btn => {
+      btn.addEventListener('click', () => openHistoryPreview(parseInt(btn.dataset.viewHist, 10)));
+    });
   } catch (err) {
     body.innerHTML = `<tr><td colspan="9" style="color:#d70015">${err.message}</td></tr>`;
   }

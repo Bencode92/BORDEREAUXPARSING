@@ -316,6 +316,21 @@ input[data-auto-contrat="1"] {
 .counter.err  { border-left: 4px solid var(--c-danger); }
 .counter.err  .n { color: var(--c-danger); }
 
+/* ------- Boutons compacts (actions historique) ------- */
+.btn-small {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.92rem;
+  background: transparent;
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin-right: 0.25rem;
+}
+.btn-small:hover { background: var(--c-surface-alt); transform: none; box-shadow: none; }
+.btn-small.danger { color: var(--c-danger); border-color: var(--c-danger-bg); }
+.btn-small.danger:hover { background: var(--c-danger-bg); }
+
 /* ------- Lignes cliquables du tableau batch ------- */
 .batch-row { cursor: pointer; transition: background 0.1s; }
 .batch-row:hover { background: var(--c-surface-alt); }
