@@ -159,6 +159,9 @@ function recompute() {
     alerts.push(`Semaine : ${totH}h${String(totM).padStart(2,'0')} (> 48h, plafond légal)`);
   }
 
+  // Récap hebdo pour la section 5 (breakdown avant CSV)
+  renderWeekBreakdown(bordereau);
+
   const ul = document.getElementById('alerts');
   if (alerts.length === 0) {
     ul.innerHTML = '<li class="small">Aucune</li>';
@@ -187,6 +190,54 @@ export function getPldCodes() {
 }
 function setPldCodes(codes) {
   localStorage.setItem(PLD_CODES_KEY, JSON.stringify(codes));
+}
+
+// Calcule le breakdown hebdo (normales/T1/T2/férié/dimanche/nuit) affiché
+// au-dessus du CSV. Même logique que csv-pld.js.bordereauToRows.
+function renderWeekBreakdown(bordereau) {
+  const box = document.getElementById('week-breakdown');
+  if (!box) return;
+  const jours = (bordereau.jours || [])
+    .filter(j => j.date)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
+  let totalTravail = 0, normales = 0, t1 = 0, t2 = 0, ferie = 0, dimanche = 0, nuit = 0;
+  let cumul = 0;
+  for (const j of jours) {
+    const h = dayHours(j);
+    const total = (h.jour || 0) + (h.nuit || 0);
+    if (total <= 0) continue;
+    totalTravail += total;
+    nuit += h.nuit || 0;
+    const d = new Date(j.date + 'T00:00:00Z');
+    const isDim = d.getUTCDay() === 0;
+    const isFer = !!j.ferie || isFrenchHoliday(j.date);
+    if (isDim) { dimanche += total; continue; }
+    if (isFer) { ferie += total; continue; }
+    let remain = total;
+    const qN = Math.min(remain, Math.max(35 - cumul, 0));
+    remain -= qN; cumul += qN; normales += qN;
+    const qT1 = Math.min(remain, Math.max(43 - cumul, 0));
+    remain -= qT1; cumul += qT1; t1 += qT1;
+    if (remain > 0) { cumul += remain; t2 += remain; }
+  }
+  if (totalTravail === 0) { box.innerHTML = ''; return; }
+  const c = getPldCodes();
+  const line = (code, label, value, tone) => value > 0
+    ? `<div class="bd-item ${tone}"><span class="bd-code">${code}</span><span class="bd-lbl">${label}</span><span class="bd-val">${value.toFixed(2)}</span></div>`
+    : '';
+  box.innerHTML = `
+    <h3 style="margin:0 0 0.5rem;font-size:0.95rem">Récap semaine (ce qui sera dans le CSV)</h3>
+    <div class="bd-grid">
+      ${line(c.total,    'Heures travaillées (total)',     totalTravail, 'total')}
+      ${line(c.jour,     'Heures normales (0→35h)',        normales,     'normal')}
+      ${line(c.t1,       'Heures sup T1 (35→43h, 125%)',   t1,           'sup1')}
+      ${line(c.t2,       'Heures sup T2 (>43h, 150%)',     t2,           'sup2')}
+      ${line(c.ferie,    'Heures fériés',                  ferie,        'ferie')}
+      ${line(c.dimanche, 'Heures dimanche (200%)',         dimanche,     'dim')}
+      ${line(c.nuit,     'Complément heures de nuit',      nuit,         'nuit')}
+    </div>
+  `;
 }
 
 function generate() {
